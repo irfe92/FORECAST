@@ -15,7 +15,8 @@
 # 5 2005-01-05 NA 276.01 NA NA NA NA
 # 6 2005-01-06 NA 258.90 NA NA NA NA
 
-
+Sys.setlocale(category = "LC_TIME", locale="")                                   # base should not be in french!!!!
+Sys.setlocale("LC_TIME", "C")
 
 noms<-colnames(wide.Conso)[-1]
 base<-wide.Conso
@@ -81,17 +82,36 @@ base%>%
   plyr::mutate(mois=month(base$Date,label = TRUE))%>%
   plyr::mutate(jour=wday(base$Date,label = TRUE))->base
 
+# conversion du mois en factor simple car il était en facteur ordonné
+base$mois=factor(as.character(base$mois))
+base$jour=factor(as.character(base$jour))
+class(base$mois)
+class(base$jour)
+
 str(base) # on a bien format date et format factor pour id
 
+#jours fériés et week ends
 
-# creation de sous base par pays, en enlevant les NA
-base_NL<-subset(base,id=="NL", select = Date:meteo)
-base_UK<-subset(base,id=="UK", select = Date:meteo)
-base_ES<-subset(base,id=="ES", select = Date:meteo)
-base_FR<-subset(base,id=="FR", select = Date:meteo)
-base_DE<-subset(base,id=="DE", select = Date:meteo)
-base_BE<-subset(base,id=="BE", select = Date:meteo)
+#creation  temperatures retardees
+library(dplyr)
+base %>%
+  plyr::mutate(tmoy1=lag(base$meteo, 1))%>%
+  plyr::mutate(tmoy2=lag(base$meteo, 2))%>%
+  plyr::mutate(tmoy3=lag(base$meteo, 3))%>%
+  plyr::mutate(tmoy4=lag(base$meteo, 4))%>%
+  plyr::mutate(tmoy5=lag(base$meteo, 5))%>%
+  plyr::mutate(tmoy6=lag(base$meteo, 6))%>%
+  plyr::mutate(tmoy7=lag(base$meteo, 7))->base
 
+# creation de sous base par pays, 
+base_NL<-subset(base,id=="NL", select = Date:tmoy7)
+base_UK<-subset(base,id=="UK", select = Date:tmoy7)
+base_ES<-subset(base,id=="ES", select = Date:tmoy7)
+base_FR<-subset(base,id=="FR", select = Date:tmoy7)
+base_DE<-subset(base,id=="DE", select = Date:tmoy7)
+base_BE<-subset(base,id=="BE", select = Date:tmoy7)
+
+#en enlevant les NA
 base_NL<-na.omit(base_NL)
 base_UK<-na.omit(base_UK)
 base_ES<-na.omit(base_ES)
@@ -99,8 +119,18 @@ base_FR<-na.omit(base_FR)
 base_DE<-na.omit(base_DE)
 base_BE<-na.omit(base_BE)
 
-# pays<-c("NL","UK","ES","FR","DE","BE")
+# on enlève la variable id qui réfère au pays
+base_NL<-base_NL[,-2]
+base_UK<-base_UK[,-2]
+base_ES<-base_ES[,-2]
+base_FR<-base_FR[,-2]
+base_DE<-base_DE[,-2]
+base_BE<-base_BE[,-2]
+
+# pays<-c("NL","UK","ES","FR","DE","BE") 
 # for (p in pays)  { base_p <-subset(base, id=="p", select = Date:meteo) }
+
+
 
 
 #------------------------------

@@ -1,0 +1,170 @@
+---
+title: "Exploration données 3"
+author: "Nhu-Nguyen"
+date: "21 mars 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+EXPLORATION DES DONNEES par pays
+La base concerne 6 pays, avec des tailles différentes:
+-BE: 1149 observations
+-DE: 1159 observations
+-ES: 791 observations
+-FR: 1523 observations
+-NL:1160 observations
+-UK: 1165 observations
+ 
+ La visualisation de quelques graphes type (consommation vs température) et boxplot de la température suggèrent des différences selon les pays.
+ 
+ Nous proposerons donc des modèles par pays pour tenir compte de ces différences, qui peuvent provenir:
+ - de climat différents
+ - qui engendrent des normes de constructions différentes: dans les pays plus froids, les maisons sont mieux isolées, ce qui peut réduire la consommation d'électricité
+ - des pratiques ou résistance au froid différentes
+ 
+
+```{r}
+summary(base_BE)
+summary(base_DE)
+summary(base_ES)
+summary(base_FR)
+summary(base_NL)
+summary(base_UK)
+
+par(mfrow=c(3,2))
+plot(base_BE$conso,base_BE$meteo)
+plot(base_DE$conso,base_DE$meteo)
+plot(base_ES$conso,base_ES$meteo)
+plot(base_FR$conso,base_FR$meteo)
+plot(base_NL$conso,base_NL$meteo)
+plot(base_UK$conso,base_UK$meteo)
+
+par(mfrow=c(3,2))
+boxplot(base_BE$meteo)
+boxplot(base_DE$meteo)
+boxplot(base_ES$meteo)
+boxplot(base_FR$meteo)
+boxplot(base_NL$meteo)
+boxplot(base_UK$meteo)
+
+par(mfrow=c(3,2))
+boxplot(base_BE$conso)
+boxplot(base_DE$conso)
+boxplot(base_ES$conso)
+boxplot(base_FR$conso)
+boxplot(base_NL$conso)
+boxplot(base_UK$conso)
+
+```
+
+REGRESSION LINEAIRE
+
+Sur l'ensemble de la base (avec tous les pays), les variables significatives sont:
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept)   67644311   35982950   1.880  0.06016 .  
+Date              3935       2093   1.880  0.06009 .  
+idUK        -105793674    2481655 -42.630  < 2e-16 ***
+idES         -87897529    3424100 -25.670  < 2e-16 ***
+idFR         -94410874    2543731 -37.115  < 2e-16 ***
+idDE        -104845284    2489183 -42.120  < 2e-16 ***
+idBE         274224254    2486399 110.290  < 2e-16 ***
+meteo         -2453494     461937  -5.311 1.12e-07 ***
+mois.L       -15011831    3158804  -4.752 2.05e-06 ***
+mois.Q        45344456    5676577   7.988 1.60e-15 ***
+mois^6        -8230893    2508221  -3.282  0.00104 ** 
+jour.Q        -9973270    1899178  -5.251 1.56e-07 ***
+
+Residual standard error: 59620000 on 6867 degrees of freedom
+  (30361 observations deleted due to missingness)
+Multiple R-squared:  0.851,	Adjusted R-squared:  0.8503 
+F-statistic:  1265 on 31 and 6867 DF,  p-value: < 2.2e-16
+
+```{r}
+# modeles lineaires avec jours, mois et les temperatures retardees
+
+#sur la base totale
+reglin_total<-lm(conso~.,data=base)
+reglin_total.sum<-summary(reglin_total)
+reglin_total.sum
+plot(reglin_total)
+
+# un modèle par pays
+reglin_BE<-lm(conso~.,data=base_BE)
+reglin_BE.sum<-summary(reglin_BE)
+names(reglin_BE)
+names(reglin_BE.sum)
+reglin_BE.sum
+plot(reglin_BE)
+
+#extraction des coefficients significatifs
+coef_BE<-reglin_BE.sum$coefficients[,4]
+which(coef_BE<0.05)
+
+# modèle avec les variables significatives, F-Stat meilleur
+reglin_BE_sign<-lm(conso~Date+meteo+mois+jour+tmoy1+tmoy7, data=base_BE)
+reglin_BE_sign.sum<-summary(reglin_BE_sign)
+reglin_BE_sign.sum
+
+
+```
+RANDOM FOREST
+```{r}
+library(caTools)
+library(randomForest)
+library(ggplot2)
+
+
+# train and test base par pays
+set.seed(123)
+split=sample.split(base_BE$conso, SplitRatio=2/3)
+training_set=subset(base_BE,split==TRUE)
+test_set=subset(base_BE,split==FALSE)
+
+rf_BE<-randomForest(conso~., data=training_set)
+print(rf_BE)
+
+
+rf_BE_pred<-predict(rf_BE,test_set)
+rf_BE_pred_sum<-summary(rf_BE_pred)
+rf_BE_pred_sum
+
+names(rf_BE)
+names(rf_BE_pred)
+
+# plot de l'erreur
+plot(x=test_set$Date,y=test_set$conso)
+lines(rf_BE_pred[,1], col="blue")
+
+dim(test_set)
+length(rf_BE_pred)
+head(rf_BE_pred)
+ 
+library(ggplot2)
+
+# plot des valeurs prédites vs valeurs réelles
+ggplot() +
+  geom_line(aes(x = test_set$Date, y = test_set$conso),
+             colour = 'red') +
+  geom_line(aes(x = test_set$Date, y = rf_BE_pred),
+            colour = 'blue') +
+  ggtitle('Truth or Bluff (Random Forest Regression)') +
+  xlab('date') +
+  ylab('conso')
+
+# comment vérifier la performance du modele random forest, car la courbe ROC ne fonctionne que pour classification binaire
+
+# faire cross validation
+
+# a faire compare the Out of Bag Sample Errors and Error on Test set
+matplot(1:mtry , cbind(oob.err,test.err), pch=19 , col=c("red","blue"),type="b",ylab="Mean Squared Error",xlab="Number of Predictors Considered at each Split")
+legend("topright",legend=c("Out of Bag Error","Test Error"),pch=19, col=c("red","blue"))
+
+
+
+```
+
+
