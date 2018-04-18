@@ -1,0 +1,184 @@
+---
+title: "ARBRE DECISION"
+author: "Nhu-Nguyen"
+date: "11 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ARBRE DECISION
+
+```{r}
+# PACKAGES
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+library(caret)		
+
+```
+
+
+
+sur la BASE TOTALE avec les 6 pays BE, DE, ES, FR, NL, UK
+
+
+Les groupes sont d'abord répartis par pays:
+- BE séparé des autres pays: 17%
+- groupe UK ES FR DE=67%
+- puis NL isolé: 17%
+
+Ensuite, le deuxième critère de séparation est le mois de l'année:
+- eté: Apr,Aug,Jul,Jun,May,Oct,Sep=9%
+- Hive:= jan, fev, mars, nov, dec=7%
+
+Enfin, selon kes 2 saisons, des températures différentes:
+- été: seuil à 12
+- hiver: seuil à 6
+
+
+NB: 
+- les pays BE, DE et NL que nous retiendrons pour la suite de l'étude appartiennent à 3 groupes différents
+- il 'y a pas de séparation par les jours ou les températures retardées.
+
+
+
+```{r}
+
+# sur base totale avec tous les pays
+don<-base.nona
+head(don)
+str(don)
+
+# definition variables Y
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+Y=don$Y
+
+head(don)
+str(don)
+
+total_tree<-rpart(Y~.,data=don)
+total_tree
+prp(total_tree)               # A fast plot													
+fancyRpartPlot(total_tree)		# A fancy plot from rattle
+
+# rpart choisit l'arbre par validation croisée k-fold. Par défaut k=10. On peut spécifier k avec xval=k
+# si xval=nrow(don), c'est un LOOCV leave one out
+# on peut spécifier le nombre minimum de données dans un noeud avec minsplit=
+
+total_tree1<-rpart(Y~.,data=don, minsplit=5, xval=nrow(don)) # LOOCV
+
+plotcp(total_tree1) 
+# graphe qui permet de choisir le nombre de feuilles qui minimise l'erreur. on prend le cp correspondant pour construire l'arbre final
+
+total_tree_final <-rpart(Y~.,data=don, minsplit=5, cp=0.031)
+fancyRpartPlot(total_tree_final)
+
+```
+
+
+ARBRE SUR BELGIQUE
+
+Le premier critère de séparation est le mois de l'année:
+- eté: Apr,Aug,Jul,Jun,May,Oct,Sep=55%
+- Hive: jan, fev, mars, nov, dec=45%
+
+Enfin, selon kes 2 saisons, des températures différentes:
+- été: seuil > 12 (38% / 17%), puis seuil >7.9 (13% / 4%)
+- hiver: seuil > 6 (20% / 25%) 
+
+En hiver, il y a plus de seuil de températures:
+- seuil > 8.6 (10% / 10%)
+- seuil > 1.8 (18% / 7%)
+
+Il 'y a pas de séparation par les jours ou les températures retardées.
+
+
+```{r}
+# sur base BE
+don<-base_BE
+head(don)
+str(don)
+
+# # definition variables Y
+# library(questionr)
+# don <- rename.variable(don, "conso", "Y")
+# head(don)
+# str(don)
+
+BE_tree<-rpart(Y~.,data=don)
+BE_tree
+fancyRpartPlot(BE_tree)		# A fancy plot from rattle
+
+```
+
+ARBRE SUR ALLEMAGNE
+
+Il 'y a pas de séparation par les mois, les jours ou les températures retardées.
+
+Le seul critère de séparation est la température avec les seuils suivant:
+- >8.1, >12, >15
+- >1.9, >4.6,
+- >1.5
+
+
+```{r}
+# sur base DE
+don<-base_DE
+head(don)
+str(don)
+
+# # definition variables Y
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+head(don)
+str(don)
+
+DE_tree<-rpart(Y~.,data=don)
+DE_tree
+fancyRpartPlot(DE_tree)		# A fancy plot from rattle
+
+```
+
+ARBRE SUR PAYS BAS
+
+Les critères de séparation sont un mixte entre température et mois.
+
+Le premier critère de séparation est la température (> 8.2)
+
+Si >8.2 (59%): séparation par les mois été: mai, juin, juil aout sept (39% / 19%)
+
+Si <8.2 (41%): séparation par température seuil à 3.7
+- > 3.7 (27%): séparation par les mois avril, mai, oct (5% / 22%)
+- < 3.7 (15%): autre température seuil > 0.7% (10% / 5%)
+
+Il 'y a pas de séparation par les jours ou les températures retardées.
+
+```{r}
+
+# sur base NL
+don<-base_NL
+head(don)
+str(don)
+
+# # definition variables Y
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+head(don)
+str(don)
+
+NL_tree<-rpart(Y~.,data=don)
+NL_tree
+fancyRpartPlot(NL_tree)		# A fancy plot from rattle
+
+```
+
+
+
+

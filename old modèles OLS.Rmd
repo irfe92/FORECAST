@@ -1,0 +1,848 @@
+---
+title: "Exploration données 3"
+author: "Nhu-Nguyen"
+date: "21 mars 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+EXPLORATIOON DES DONNEES SUR BASE TOTALE
+
+La base totale sans valeurs manquantes (base.nona) comprend 6899 observations. 
+Les 4 variables initiales sont:
+- id: identification des pays
+- conso: la consommation d'électricité par pays
+- date: du 08/01/2015 et finit au 16/03/2018
+- météo: température du jour
+
+Nous avons créé 9 variables supplémentaires:
+- jours de la semaine
+- mois
+- tmoy1 à tmoy7: températures retardées
+
+Le graphe de la conso (Y) en fonction de la température fait apparaitre 3 groupes de données avec des comportements différents
+
+Le graphe de la conso (Y) en fonction de la date fait apparaitre 3 groupes de données avec des comportements différents: 
+- un groupe avec de fortes valeurs de conso et de fortes variations
+- un groupe avec des valeurs moyennes de conso et des variations moyennes
+- un groupe avec des valeurs faibles de conso et des faibles variations
+L'évolution de la conso semble saisonnier.
+
+Il faudrait standardiser les données 
+
+EXPLORATION DES DONNEES par pays
+La base totale concerne 6 pays, avec des tailles différentes:
+-BE: 1149 observations
+-DE: 1159 observations
+-ES: 791 observations
+-FR: 1523 observations
+-NL:1160 observations
+-UK: 1165 observations
+ 
+ La visualisation de quelques graphes type (consommation vs température) et boxplot de la température suggèrent des différences selon les pays.
+ 
+ Nous proposerons donc des modèles par pays pour tenir compte de ces différences, qui peuvent provenir:
+ - de climat différents
+ - qui engendrent des normes de constructions différentes: dans les pays plus froids, les maisons sont mieux isolées, ce qui peut réduire la consommation d'électricité
+ - des pratiques ou résistance au froid différentes
+ 
+
+```{r}
+EXPLORATION DONNEES
+
+library(stargazer)
+
+ # graphe de la conso en fonction de la température
+plot(base.nona$meteo,base.nona$conso) # 3 groupes de données distincts
+plot(base.nona$conso,base.nona$meteo)
+
+# graphe de la conso selon la date
+plot(base.nona$Date,base.nona$conso) # 3 groupes de données distincts
+
+# graphe conso en fonction du mois: nb les mois ne sont plus rangés de janvier à décembre
+plot(base.nona$mois,base.nona$conso)
+
+plot(base.nona$mois,base.nona$meteo)
+
+
+# PAR PAYS
+summary(base_BE)
+summary(base_DE)
+summary(base_ES)
+summary(base_FR)
+summary(base_NL)
+summary(base_UK)
+
+par(mfrow=c(3,2))
+plot(base_BE$conso,base_BE$meteo)
+plot(base_DE$conso,base_DE$meteo)
+plot(base_ES$conso,base_ES$meteo)
+plot(base_FR$conso,base_FR$meteo)
+plot(base_NL$conso,base_NL$meteo)
+plot(base_UK$conso,base_UK$meteo)
+
+par(mfrow=c(3,2))
+boxplot(base_BE$meteo)
+boxplot(base_DE$meteo)
+boxplot(base_ES$meteo)
+boxplot(base_FR$meteo)
+boxplot(base_NL$meteo)
+boxplot(base_UK$meteo)
+
+par(mfrow=c(3,2))
+boxplot(base_BE$conso)
+boxplot(base_DE$conso)
+boxplot(base_ES$conso)
+boxplot(base_FR$conso)
+boxplot(base_NL$conso)
+boxplot(base_UK$conso)
+
+```
+
+REGRESSION LINEAIRE
+
+Sur l'ensemble de la base (avec tous les pays), les variables significatives sont celles de:
+- la température, ce qui est logique
+- des pays (UK, ES, FR, DE, BE): ce qui plaide pour un modèle par pays. A noter que le pays NL n'apparait pas
+- de certains mois: les mois d'hiver (novembre, décembre, février,janvier, mars) avec un coefficient positif et le mois de mai (moins significatif, avec un coefficient négatif)
+- de certains jours correspondant au week end (samedi et dimanche)
+
+NB: les températures retardées n'apparaissent pas
+
+Le graphe des résidus montre un structure, le modèle devrait pouvoir être amélioré.
+
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept)   67644311   35982950   1.880  0.06016 .  
+idUK        -105793674    2481655 -42.630  < 2e-16 ***
+idES         -87897529    3424100 -25.670  < 2e-16 ***
+idFR         -94410874    2543731 -37.115  < 2e-16 ***
+idDE        -104845284    2489183 -42.120  < 2e-16 ***
+idBE         274224254    2486399 110.290  < 2e-16 ***
+meteo         -2453494     461937  -5.311 1.12e-07 ***
+moisDec       20564769    3807358   5.401 6.84e-08 ***
+moisFeb       28171803    3836556   7.343 2.33e-13 ***
+moisJan       31269376    3847650   8.127 5.18e-16 ***
+moisMar       15719202    3666531   4.287 1.83e-05 ***
+moisMay       -9080947    3807695  -2.385  0.01711 *  
+moisNov       14864326    3696175   4.022 5.84e-05 ***
+jourSat       -7257008    2693413  -2.694  0.00707 ** 
+jourSun       -8602780    2688577  -3.200  0.00138 ** 
+
+Residual standard error: 59620000 on 6867 degrees of freedom
+  (30361 observations deleted due to missingness)
+Multiple R-squared:  0.851,	Adjusted R-squared:  0.8503 
+F-statistic:  1265 on 31 and 6867 DF,  p-value: < 2.2e-16
+
+
+En enlevant les variables de températures retardées, on améliore la F statistics à 1650 (vs 1265 avant le modèle linéaire total) avec peu de perte sur le R2 ajusté à 0.8507 (vs 0.8503 dans le modèle linéaire total)
+
+On retrouve les mêmes variables significatives, avec en plus la variable date (qui n'était pas significative dans le modèle total):
+Date              4063       2072   1.961  0.04990 *  
+idUK        -105971509    2478021 -42.765  < 2e-16 ***
+idES         -88338844    3185104 -27.735  < 2e-16 ***
+idFR         -94808960    2470906 -38.370  < 2e-16 ***
+idDE        -105099413    2485913 -42.278  < 2e-16 ***
+idBE         275267338    2482190 110.897  < 2e-16 ***
+meteo         -2982329     250469 -11.907  < 2e-16 ***
+moisDec       20638470    3736988   5.523 3.46e-08 ***
+moisFeb       28303540    3706756   7.636 2.55e-14 ***
+moisJan       31349425    3637772   8.618  < 2e-16 ***
+moisMar       15900123    3565189   4.460 8.33e-06 ***
+moisMay       -9109448    3788046  -2.405  0.01621 *  
+moisNov       14855390    3698271   4.017 5.96e-05 ***
+jourSat       -7195591    2677924  -2.687  0.00723 ** 
+jourSun       -8580437    2677512  -3.205  0.00136 ** 
+
+Residual standard error: 59720000 on 6922 degrees of freedom
+  (30313 observations deleted due to missingness)
+Multiple R-squared:  0.8512,	Adjusted R-squared:  0.8507 
+F-statistic:  1650 on 24 and 6922 DF,  p-value: < 2.2e-16
+
+Le graphe des résidus montre un structure, le modèle devrait pouvoir être amélioré.
+
+```{r}
+# REGRESSION LINEAIRE SUR BASE TOTALE
+
+library(stargazer)
+
+# modeles lineaires avec jours, mois et les temperatures retardees
+
+#sur la base totale
+RL_total<-lm(conso~.,data=base)
+RL_total.sum<-summary(RL_total)
+RL_total.sum
+plot(RL_total)
+
+# sur la base totale, avec seulement les variables significatives date, id, mois et jour
+base1<-base[,c(1:6)]
+head(base1)
+
+RL1<-lm(conso~.,data=base1)
+RL1.sum<-summary(RL1)
+# RL1.sum
+plot(RL1)
+
+#visualistion des résultats avec stargazer
+stargazer(RL_total, type='text', flip=TRUE)
+
+# récupération uniquement des coef
+str(coef(summary(RL_total)))
+head(coef(summary(RL_total)))
+
+# uniquement les coef estimés et sd error
+model.summary = coef(summary(RL_total))[, 1:2]
+stargazer(model.summary, type='text', flip=TRUE)
+
+```
+
+
+COMPARAISON DES RESULTATS DES MODELES
+
+```{r}
+library(stargazer)
+
+# regression lineaire avec tous les pays
+# les 3 pays non étudiés RL_ES,RL_FR,RL_UK
+
+# modèles total et 3 pays retenus avec toutes les variables RL_BE,RL_DE,RL_NL
+stargazer(RL_total, RL_BE,RL_DE,RL_NL, type='text', flip=TRUE, title="Results", column.labels = c("total", "BE","DE","NL"), keep=c("Date","meteo"))
+
+# modèles total et 3 pays retenus avec les variables significatives RL_BE1,RL_DE1,RL
+# hausse nette du R² ajusté entre le modèle avec tous les pays (0.85) et par pays (0.959 , 0.911, 0.944)
+# les F stat ne sont pas du même rdre de grandeur entre total et par pays: très grand pour BE et très petit pour DE
+# baisse significative de Residual Sdt Error
+stargazer(RL_total, RL_BE1,RL_DE1,RL_NL1,type='text', flip=TRUE, title="Results", align=TRUE, keep=c("Date","meteo"))
+ 
+# COMPARAISONS DES MODELES OLS PAR PAYS toutes variales vs variables signficatives
+# par pays BE modèle avec toutes les variables et les variables significatives
+# baisse du R² ajusté de 0.961 à 0.959
+# hausse F stat de 1088.277 à 1290.372
+# residual sd error en hausse de 31794135 à 32459706 , VALEURS TRES GRANDES ???
+stargazer(RL_BE,RL_BE1,type='text', flip=TRUE, title="Results", keep=c("Date","meteo"))
+
+
+# par pays DE modèle avec toutes les variables et les variables significatives
+# R² ajusté stable à 0.911
+# hausse F stat de 452.555 à 559.457
+# residual sd error stable à 272.271 et 272.306
+stargazer(RL_DE,RL_DE1,type='text', flip=TRUE, title="Results", keep=c("Date","meteo"))
+
+# par pays NL modèle avec toutes les variables et les variables significatives
+# R² ajusté quasi stable à 0.946 et 0.945
+# hausse F stat de 761.064 à 933.047
+# residual sd error en hausse de 9088651 à 912929, VALEURS TRES GRANDES ???
+stargazer(RL_NL,RL_NL1,type='text', flip=TRUE, title="Results", keep=c("Date","meteo"))
+
+
+```
+
+
+
+
+UN MODELE LINEAIRE PAR PAYS: BELGIQUE
+
+Le modèle linéaire sur toutes les variables (yc températures retardées) fait ressortir les variables significatives suivantes, 
+- les mêmes que celles sur la base totale (avec tous les pays): meteo, les mois d'hiver (novembre, décembre, janvier, février, mars), le jours du we (samedi et dimanche)
+- de nouvelles variables: mois d'octobre, septembre, mercredi et jeudi, date et température retardée d'un jour et de 7 jours
+
+Le R2 ajusté est meilleur à 0.9609 mais la F-Stat est moins élevé à 1088.
+
+Le graphe des résidus présente une légère structure, moins prononcée que dans le modèle avec tous les pays
+
+             Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 154518133   48692765   3.173 0.001548 ** 
+Date            22718       2860   7.944 4.71e-15 ***
+meteo       -11247435     481953 -23.337  < 2e-16 ***
+moisDec      93713639    4888240  19.171  < 2e-16 ***
+moisFeb     119339602    4942871  24.144  < 2e-16 ***
+moisJan     132155536    4903878  26.949  < 2e-16 ***
+moisMar      62871738    4725285  13.305  < 2e-16 ***
+moisMay     -23102305    5032786  -4.590 4.92e-06 ***
+moisNov      74987132    4807214  15.599  < 2e-16 ***
+moisOct      12496162    4829618   2.587 0.009795 ** 
+moisSep     -16174104    5379920  -3.006 0.002702 ** 
+jourSat     -31944182    3501222  -9.124  < 2e-16 ***
+jourSun     -34253828    3501607  -9.782  < 2e-16 ***
+jourThu       8989655    3507506   2.563 0.010507 *  
+jourWed      10945345    3523386   3.106 0.001941 ** 
+tmoy1        -2378481     643826  -3.694 0.000231 ***
+tmoy7        -1456679     474085  -3.073 0.002173 ** 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 31790000 on 1125 degrees of freedom
+Multiple R-squared:  0.9618,	Adjusted R-squared:  0.9609 
+F-statistic:  1088 on 26 and 1125 DF,  p-value: < 2.2e-16
+
+
+
+En enlevant les variables non significatives, on améliore la F-stat à 1290 (vs 1088) en dégradant le R2 ajusté à 0.9502 (vs 0.9609 dans le modèle total). Le graphe des résidus présente encore une légère structure. Le modèle devrait pouvoir être amélioré.
+
+Coefficients:
+             Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 147023870   49698978   2.958 0.003158 ** 
+Date            22721       2919   7.783 1.59e-14 ***
+meteo       -11084265     486328 -22.792  < 2e-16 ***
+moisDec      96302064    4977068  19.349  < 2e-16 ***
+moisFeb     123643681    5009016  24.684  < 2e-16 ***
+moisJan     137018347    4957570  27.638  < 2e-16 ***
+moisMar      66047639    4802222  13.754  < 2e-16 ***
+moisMay     -25529073    5125737  -4.981 7.33e-07 ***
+moisNov      76023504    4905412  15.498  < 2e-16 ***
+moisOct      11139151    4926328   2.261 0.023940 *  
+moisSep     -20472963    5458652  -3.751 0.000185 ***
+jourSat     -32395320    3564029  -9.090  < 2e-16 ***
+jourSun     -34527276    3565397  -9.684  < 2e-16 ***
+jourThu       9278746    3570111   2.599 0.009471 ** 
+jourWed      10564624    3591349   2.942 0.003331 ** 
+tmoy1        -4176888     487998  -8.559  < 2e-16 ***
+tmoy7        -2824921     294377  -9.596  < 2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 32460000 on 1130 degrees of freedom
+Multiple R-squared:   0.96,	Adjusted R-squared:  0.9592 
+F-statistic:  1290 on 21 and 1130 DF,  p-value: < 2.2e-16
+
+OLS SANS INTERACTION
+```{r}
+# BELGIQUE OLS sans interaction
+
+don<-base_BE
+dim(don)
+
+# renommer variable cible conso en Y
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+
+# modèle linéaire simple sur Y, avec toutes les variables
+RL_BE<-lm(Y~.,data=base_BE)
+RL_BE.sum<-summary(RL_BE)
+mse_RL_BE= mean((Y-predict(RL_BE,don))^2)
+# names(RL_BE)
+# names(RL_BE.sum)
+# RL_BE.sum
+plot(RL_BE) # graphe résidus vs fitted incurvé
+
+#extraction des coefficients significatifs
+coef_BE<-RL_BE.sum$coefficients[,4]
+which(coef_BE<0.05)
+
+# selection des variables significatives à la main, en en gardant que les pvalue significatives
+RL_BE1<-lm(Y~Date+meteo+mois+jour+tmoy1+tmoy7, data=don)
+mse_RL_BE1= mean((Y-predict(RL_BE1,don))^2)
+# RL_BE1.sum<-summary(RL_BE1)
+# RL_BE1.sum
+# le graphe des résidus vs fitted présente une structure incurvée, résidus plus élevées pour les valeurs petites et grandes de fitted. Le modèle peut être amélioré
+plot(RL_BE1) # graphe résidus vs fitted incurvé
+
+
+# selection des variables significatives avec step
+# step picks the best model from the one-term-dropped models and repeats the process until no further improvement in the model can be made by dropping a term. 
+# The test parameter is optional, the default criteria is "AIC". It can also take the values "F" and "LRT".
+# modèle retenu: lm(formula = Y ~ Date + meteo + mois + jour + tmoy1 + tmoy2 + tmoy3 + tmoy5 + tmoy7, data = base_BE)
+step(RL_BE, test="F")
+RL_BE_step<-lm( Y ~ Date + meteo + mois + jour + tmoy1 + tmoy2 + tmoy3 + tmoy5 + tmoy7, data=don)
+mse_RL_BE_step= mean((Y-predict(RL_BE_step,don))^2)
+# le graphe des résidus vs fitted présente une structure incurvée, résidus plus élevées pour les valeurs petites et grandes de fitted. Le modèle peut être amélioré
+plot(RL_BE_step)  # graphe résidus vs fitted incurvé
+
+
+# par pays BE modèle avec toutes les variables et les variables significatives
+# baisse du R² ajusté de 0.961 à 0.959
+# hausse F stat de 1088.277 à 1290.372
+# residual sd error en hausse de 31794135 à 32459706 , VALEURS TRES GRANDES ???
+stargazer(RL_BE,RL_BE1, RL_BE_step,type='text', flip=TRUE, title="Results", keep=c("Date","meteo"), column.labels = c("BE", "BE1", "step"))
+
+
+# comparaison avec modèle linéaire issu de step
+# R² ajusté step légèrement meilleur que le modèle en ne gardant directement que les  variables significative (step à 0.961 vs 0.959), mais égal à celui du modèle total
+# F stat moins élevé que RL_BE1 mais supérieur au modèle total
+# residual std error moins élevé que RL_BE1 et modèle total
+stargazer(RL_BE,RL_BE1,RL_BE_step,type='text', flip=TRUE, title="Results", keep=c("Date","meteo"), column.labels = c("BE", "BE1","step"))
+
+mse.RL.BE=c(mse_RL_BE,mse_RL_BE1,mse_RL_BE_step)
+which.min(mse.RL.BE) # c'est le 2ème ie RL_BE1 qui présente la plus petite MSE
+
+graph<-plot(mse.RL.BE, xlab="modèles RL", ylab="MSE", main="MSE des modèles linéaires sur la Belgique",las=0)
+axis(1, labels=c("RL", "RL_BE1", "RL_BE_step"), at = graph)
+
+# anova: the returned information for the F-test is the difference in the sum of squares between the models, the F-statistic for this difference, and the p-value for the F-statistic.
+anova(RL_BE,RL_BE1)
+anova(RL_BE1,RL_BE_step) # la différence semble significative entre step et BE1
+
+
+```
+
+
+OLS AVEC INTERACTION SIMPLE
+```{r}
+# BELGIQUE OLS AVEC INTERACTION entre la température (METEO) et les variables (Date, mois, et jour)
+
+don<-base_BE
+
+# renommer variable cible conso en Y
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+
+RLI_BE<-lm(Y~(Date+mois+jour)*meteo,data=don) # équivalent à lm(Y~Date*meteo+mois*meteo+jour*meteo)
+# RLI_BE_sum<-summary(RLI_BE)
+# RLI_BE_sum
+mse_RLI_BE= mean((Y-predict(RLI_BE,don))^2)
+
+# le graphe des résidus vs fitted n'a plus de structure incurvée. Le modèle avec interaction semble donc meilleur qu'un modèle linéaire sans interaction
+plot(RLI_BE)
+
+# selection des variables significatives avec step: pas de résultat ici, modl
+# modèle retenu : formula = Y ~ (Date + mois + jour) * meteo, data = base_BE)  
+# step(RLI_BE, test="F")
+
+# comparaison modèles linéaire sans et avec interaction
+# hausse du R& ajusté de 0.959 à 0.972
+# baisse significative du Residual std error de 32 459 706 à 26 732 975 , chiffres encore très élevés
+# baisse de F stat de 1290.372 à 1094.609
+stargazer(RL_BE1,RLI_BE,type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL_BE1", "RLI_BE"))
+
+
+```
+
+
+
+OLS AVEC INTERACTION POLY
+```{r}
+# BELGIQUE OLS AVEC INTERACTION entre polynome de la température (METEO) et les variables (Date, mois, et jour)
+RLI_P2_BE<-lm(Y~(Date+mois+jour)*I(poly(meteo,2)),data=base_BE) 
+RLI_P2_BE_sum<-summary(RLI_P2_BE)
+RLI_P2_BE_sum
+
+# comparaison modèles linéaire avec interaction, avec iineraction et poly (meteo,2)
+# faible hausse du R& ajusté de 0.972 à 0.974
+# faible  baisse du Residual std error de 26 732 975 à 26 126 736 , chiffres encore très élevés
+# baisse sensible de F stat de 1094.609 à 758.449
+stargazer(RLI_BE, RLI_P2_BE, type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RLI", "RLIP2"))
+
+# l'ajout du poly n'améliore pas significativement le R² ajusté et fait baisser sensiblement la F-stat.
+# il ne semble pas intéressant de mettre la variable meteo en polynome dans l'interraction
+
+# graphe des valeurs prédites selon les modèles
+plot(don$Date, don$Y, xlab = "date", ylab="Conso", main="modèles RL et RLI sur la Belgique" )
+lines(don$Date,pred_RL_BE1$fit, col="blue")
+lines(don$Date,pred_RLI_BE$fit, col="red")
+
+
+```
+
+
+
+
+MODELE SUR L ALLEMAGNE
+
+Le modèle linéaire sur toutes les variables (yc températures retardées) fait ressortir les variables significatives suivantes, 
+- les mêmes que celles sur la base totale (avec tous les pays): meteo, les mois d'hiver (novembre, décembre, janvier, février, mars), le jours du we (samedi et dimanche)
+- de nouvelles variables: aout, juillet, octobre, mercredi et jeudi, date et température retardée d'un jour et de 7 jours
+
+Le R2 ajusté est meilleur à 0.9609 mais la F-Stat est moins élevé à 1088.
+
+
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 1549.97407  419.72436   3.693 0.000233 ***
+Date           0.13747    0.02455   5.599 2.71e-08 ***
+meteo       -133.97819    5.32545 -25.158  < 2e-16 ***
+moisAug      225.10855   54.40124   4.138 3.77e-05 ***
+moisDec      304.98140   43.39304   7.028 3.63e-12 ***
+moisFeb      250.91160   45.11203   5.562 3.34e-08 ***
+moisJan      238.39399   45.63326   5.224 2.09e-07 ***
+moisJul      298.27631   55.90545   5.335 1.15e-07 ***
+moisNov      250.57875   42.01834   5.964 3.31e-09 ***
+moisOct      131.47867   40.94121   3.211 0.001359 ** 
+jourSat     -212.33597   30.61455  -6.936 6.83e-12 ***
+jourSun     -248.23799   30.45881  -8.150 9.70e-16 ***
+jourThu       64.22431   30.69331   2.092 0.036624 *  
+tmoy1         36.56389    7.99315   4.574 5.31e-06 ***
+tmoy2        -18.89211    8.39751  -2.250 0.024661 *  
+
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 272.2 on 1115 degrees of freedom
+Multiple R-squared:  0.9134,	Adjusted R-squared:  0.9114 
+F-statistic: 452.6 on 26 and 1115 DF,  p-value: < 2.2e-16
+
+
+En ne gardant que les variables significatives, F-Stat meilleur à 452
+
+Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 1478.01171  418.63759   3.531 0.000432 ***
+Date           0.13947    0.02455   5.682 1.70e-08 ***
+meteo       -133.58782    5.26424 -25.376  < 2e-16 ***
+moisAug      184.61495   51.13003   3.611 0.000319 ***
+moisDec      324.13191   42.51025   7.625 5.20e-14 ***
+moisFeb      276.61793   43.51503   6.357 2.99e-10 ***
+moisJan      265.32634   43.78386   6.060 1.86e-09 ***
+moisJul      253.03442   52.03487   4.863 1.32e-06 ***
+moisNov      254.87241   41.98837   6.070 1.75e-09 ***
+moisOct      121.37784   40.72567   2.980 0.002941 ** 
+jourSat     -210.33877   30.25775  -6.952 6.12e-12 ***
+jourSun     -245.74198   30.16808  -8.146 9.98e-16 ***
+jourThu       65.30708   30.52656   2.139 0.032623 *  
+tmoy1         35.71667    7.55301   4.729 2.55e-06 ***
+tmoy2        -17.60812    5.21989  -3.373 0.000768 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 272.3 on 1120 degrees of freedom
+Multiple R-squared:  0.913,	Adjusted R-squared:  0.9113 
+F-statistic: 559.5 on 21 and 1120 DF,  p-value: < 2.2e-16
+
+
+
+```{r}
+# ALLEMAGNE
+
+head(base_DE)
+
+# ALLEMAGNE
+RL_DE<-lm(conso~.,data=base_DE)
+RL_DE.sum<-summary(RL_DE)
+# names(RL_BE)
+# names(RL_BE.sum)
+# RL_DE.sum
+plot(RL_DE) # graphe des résidus incurvé
+
+# modèle avec les variables significatives, F-Stat meilleur
+RL_DE1<-lm(conso~Date+meteo+mois+jour+tmoy1+tmoy2, data=base_DE)
+RL_DE1.sum<-summary(RL_DE1)
+# RL_DE1.sum
+plot(RL_DE1) # graphe des résidus incurvé
+
+
+
+```
+
+MODELE LINEAIRE SUR LES PAYS BAS
+
+Avec toutes les variables
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) -4.474e+07  1.393e+07  -3.211 0.001358 ** 
+Date         1.108e+04  8.167e+02  13.571  < 2e-16 ***
+meteo       -3.457e+06  1.693e+05 -20.417  < 2e-16 ***
+moisAug      1.055e+07  1.754e+06   6.013 2.45e-09 ***
+moisDec      2.896e+07  1.389e+06  20.850  < 2e-16 ***
+moisFeb      3.009e+07  1.429e+06  21.052  < 2e-16 ***
+moisJan      3.263e+07  1.409e+06  23.156  < 2e-16 ***
+moisJul      1.432e+07  1.788e+06   8.011 2.81e-15 ***
+moisJun      5.895e+06  1.658e+06   3.556 0.000392 ***
+moisMar      1.462e+07  1.360e+06  10.747  < 2e-16 ***
+moisNov      2.247e+07  1.374e+06  16.357  < 2e-16 ***
+moisOct      1.168e+07  1.387e+06   8.420  < 2e-16 ***
+moisSep      8.705e+06  1.604e+06   5.427 7.00e-08 ***
+jourMon     -2.340e+06  1.001e+06  -2.337 0.019615 *  
+jourSat     -1.254e+07  1.004e+06 -12.490  < 2e-16 ***
+tmoy1       -9.005e+05  2.393e+05  -3.763 0.000177 ***
+tmoy7       -3.263e+05  1.663e+05  -1.963 0.049925 *  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 9089000 on 1126 degrees of freedom
+Multiple R-squared:  0.9462,	Adjusted R-squared:  0.9449 
+F-statistic: 761.1 on 26 and 1126 DF,  p-value: < 2.2e-16
+
+
+En enlevant les variables non significatives
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) -4.473e+07  1.399e+07  -3.197 0.001428 ** 
+Date         1.108e+04  8.204e+02  13.501  < 2e-16 ***
+meteo       -3.912e+06  1.206e+05 -32.428  < 2e-16 ***
+moisAug      1.049e+07  1.754e+06   5.985 2.91e-09 ***
+moisDec      2.900e+07  1.394e+06  20.803  < 2e-16 ***
+moisFeb      3.010e+07  1.432e+06  21.025  < 2e-16 ***
+moisJan      3.265e+07  1.408e+06  23.184  < 2e-16 ***
+moisJul      1.425e+07  1.787e+06   7.976 3.68e-15 ***
+moisJun      5.832e+06  1.658e+06   3.517 0.000454 ***
+moisMar      1.470e+07  1.363e+06  10.781  < 2e-16 ***
+moisNov      2.245e+07  1.380e+06  16.274  < 2e-16 ***
+moisOct      1.170e+07  1.393e+06   8.396  < 2e-16 ***
+moisSep      8.647e+06  1.607e+06   5.381 9.02e-08 ***
+jourMon     -2.256e+06  1.004e+06  -2.247 0.024857 *  
+jourSat     -1.244e+07  1.005e+06 -12.375  < 2e-16 ***
+jourSun     -1.734e+07  1.006e+06 -17.242  < 2e-16 ***
+tmoy2       -5.772e+05  1.222e+05  -4.722 2.62e-06 ***
+tmoy7       -4.211e+05  9.391e+04  -4.485 8.04e-06 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 9130000 on 1131 degrees of freedom
+Multiple R-squared:  0.9454,	Adjusted R-squared:  0.9444 
+F-statistic:   933 on 21 and 1131 DF,  p-value: < 2.2e-16
+
+
+
+```{r}
+
+# NL PAYS BAS
+RL_NL<-lm(conso~.,data=base_NL)
+RL_NL.sum<-summary(RL_NL)
+# RL_NL.sum
+plot(RL_NL) # graphe des résidus incurvé
+
+# modèle avec les variables significatives
+RL_NL1<-lm(conso~Date+meteo+mois+jour+tmoy2+tmoy7, data=base_NL)
+RL_NL1.sum<-summary(RL_NL1)
+RL_NL1.sum
+plot(RL_NL1) # graphe des résidus incurvé
+
+
+```
+
+
+
+MODELE LINEAIRE SUR L ESPAGNE
+
+Sur toutes les variables, les variables significatives sur beaucoup plus de mois et de jour. Pas de températures retardées
+
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) -8.706e+02  1.437e+02  -6.057 2.19e-09 ***
+Date         1.120e-01  8.318e-03  13.459  < 2e-16 ***
+meteo       -1.509e+01  1.512e+00  -9.985  < 2e-16 ***
+moisAug      5.785e+01  1.508e+01   3.837 0.000135 ***
+moisDec      9.119e+01  1.067e+01   8.544  < 2e-16 ***
+moisFeb      1.215e+02  9.765e+00  12.439  < 2e-16 ***
+moisJan      1.262e+02  1.007e+01  12.540  < 2e-16 ***
+moisJul      1.121e+02  1.457e+01   7.695 4.42e-14 ***
+moisJun      7.301e+01  1.298e+01   5.625 2.61e-08 ***
+moisMar      5.619e+01  9.463e+00   5.938 4.39e-09 ***
+moisNov      7.530e+01  9.570e+00   7.868 1.24e-14 ***
+moisSep      5.290e+01  1.238e+01   4.273 2.18e-05 ***
+jourMon      1.825e+01  6.658e+00   2.741 0.006268 ** 
+jourSat     -1.030e+02  6.652e+00 -15.482  < 2e-16 ***
+jourSun     -1.087e+02  6.656e+00 -16.335  < 2e-16 ***
+jourThu      2.127e+01  6.638e+00   3.204 0.001412 ** 
+jourTue      2.743e+01  6.657e+00   4.121 4.19e-05 ***
+jourWed      2.409e+01  6.659e+00   3.618 0.000316 ***
+ 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 49.65 on 758 degrees of freedom
+Multiple R-squared:  0.9264,	Adjusted R-squared:  0.9238 
+F-statistic: 366.7 on 26 and 758 DF,  p-value: < 2.2e-16
+
+
+En enlevant les variables non significatives (toutes les températures retardées)
+
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) -9.144e+02  1.450e+02  -6.305 4.86e-10 ***
+Date         1.126e-01  8.423e-03  13.367  < 2e-16 ***
+meteo       -1.920e+01  8.230e-01 -23.325  < 2e-16 ***
+moisAug      3.172e+01  1.298e+01   2.444 0.014748 *  
+moisDec      1.027e+02  1.031e+01   9.958  < 2e-16 ***
+moisFeb      1.321e+02  9.410e+00  14.040  < 2e-16 ***
+moisJan      1.385e+02  9.626e+00  14.384  < 2e-16 ***
+moisJul      8.873e+01  1.292e+01   6.867 1.35e-11 ***
+moisJun      5.399e+01  1.187e+01   4.547 6.33e-06 ***
+moisMar      6.359e+01  9.355e+00   6.797 2.15e-11 ***
+moisNov      7.920e+01  9.648e+00   8.209 9.47e-16 ***
+moisSep      3.494e+01  1.110e+01   3.148 0.001708 ** 
+jourMon      1.939e+01  6.727e+00   2.883 0.004047 ** 
+jourSat     -1.025e+02  6.722e+00 -15.250  < 2e-16 ***
+jourSun     -1.082e+02  6.724e+00 -16.099  < 2e-16 ***
+jourThu      2.074e+01  6.708e+00   3.092 0.002059 ** 
+jourTue      2.814e+01  6.727e+00   4.183 3.21e-05 ***
+jourWed      2.411e+01  6.726e+00   3.585 0.000358 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 50.29 on 765 degrees of freedom
+Multiple R-squared:  0.9238,	Adjusted R-squared:  0.9219 
+F-statistic: 487.8 on 19 and 765 DF,  p-value: < 2.2e-16
+
+
+```{r}
+
+# ESPAGNE
+RL_ES<-lm(conso~.,data=base_ES)
+RL_ES.sum<-summary(RL_ES)
+# names(RL_BE)
+# names(RL_BE.sum)
+# RL_ES.sum
+plot(RL_ES) # graphe des résidus incurvé, moins que pour BE, DE et NL
+
+# modèle avec les variables significatives, F-Stat meilleur
+RL_ES1<-lm(conso~Date+meteo+mois+jour, data=base_ES)
+RL_ES1.sum<-summary(RL_ES1)
+# RL_ES1.sum
+plot(RL_ES1) # graphe des résidus incurvé, moins que pour BE, DE et NL
+
+```
+
+MODELE LINEAIRE SUR LA FRANCE
+
+Avec toutes les variables
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 1248.04768  121.65365  10.259  < 2e-16 ***
+Date           0.04580    0.00705   6.497 1.12e-10 ***
+meteo        -54.66184    2.32294 -23.531  < 2e-16 ***
+moisAug       68.84477   19.77475   3.481 0.000513 ***
+moisDec      409.98832   16.91988  24.231  < 2e-16 ***
+moisFeb      467.73990   16.94244  27.608  < 2e-16 ***
+moisJan      477.19895   17.39473  27.434  < 2e-16 ***
+moisJul      188.10440   20.70025   9.087  < 2e-16 ***
+moisJun       96.02768   18.86935   5.089 4.06e-07 ***
+moisMar      265.38774   15.75717  16.842  < 2e-16 ***
+moisMay      -74.90871   15.63080  -4.792 1.81e-06 ***
+moisNov      328.61473   15.55618  21.124  < 2e-16 ***
+moisOct       60.46514   15.39093   3.929 8.94e-05 ***
+jourSat     -102.25202   11.33801  -9.019  < 2e-16 ***
+jourSun     -115.69760   11.32785 -10.214  < 2e-16 ***
+jourThu       26.12732   11.36539   2.299 0.021652 *  
+jourTue       34.23883   11.32916   3.022 0.002553 ** 
+jourWed       38.68393   11.35653   3.406 0.000676 ***
+tmoy2         -7.69947    3.74573  -2.056 0.040003 *  
+tmoy7         -7.55547    2.30012  -3.285 0.001044 ** 
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 117.7 on 1482 degrees of freedom
+Multiple R-squared:  0.9646,	Adjusted R-squared:  0.9639 
+F-statistic:  1552 on 26 and 1482 DF,  p-value: < 2.2e-16
+
+
+En enlevant les variables non significatives
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept)  1.230e+03  1.221e+02  10.077  < 2e-16 ***
+Date         4.616e-02  7.078e-03   6.522 9.51e-11 ***
+meteo       -5.304e+01  1.495e+00 -35.474  < 2e-16 ***
+moisAug      6.229e+01  1.978e+01   3.150 0.001667 ** 
+moisDec      4.153e+02  1.694e+01  24.521  < 2e-16 ***
+moisFeb      4.736e+02  1.695e+01  27.947  < 2e-16 ***
+moisJan      4.851e+02  1.735e+01  27.956  < 2e-16 ***
+moisJul      1.806e+02  2.069e+01   8.729  < 2e-16 ***
+moisJun      9.014e+01  1.889e+01   4.773 1.99e-06 ***
+moisMar      2.705e+02  1.577e+01  17.159  < 2e-16 ***
+moisMay     -7.551e+01  1.569e+01  -4.812 1.64e-06 ***
+moisNov      3.315e+02  1.560e+01  21.251  < 2e-16 ***
+moisOct      5.943e+01  1.545e+01   3.847 0.000125 ***
+jourSat     -1.022e+02  1.136e+01  -8.996  < 2e-16 ***
+jourSun     -1.152e+02  1.136e+01 -10.138  < 2e-16 ***
+jourThu      2.564e+01  1.139e+01   2.252 0.024494 *  
+jourTue      3.380e+01  1.136e+01   2.975 0.002977 ** 
+jourWed      3.802e+01  1.139e+01   3.337 0.000867 ***
+tmoy2       -9.858e+00  1.526e+00  -6.459 1.42e-10 ***
+tmoy7       -1.080e+01  1.153e+00  -9.364  < 2e-16 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 118.2 on 1487 degrees of freedom
+Multiple R-squared:  0.9642,	Adjusted R-squared:  0.9637 
+F-statistic:  1905 on 21 and 1487 DF,  p-value: < 2.2e-16
+
+
+```{r}
+
+# FRANCE
+RL_FR<-lm(conso~.,data=base_FR)
+RL_FR.sum<-summary(RL_FR)
+# RL_FR.sum
+plot(RL_FR) # graphe des résidus incurvé
+
+# modèle avec les variables significatives
+RL_FR1<-lm(conso~Date+meteo+mois+jour+tmoy2+tmoy7, data=base_FR)
+RL_FR1.sum<-summary(RL_FR1)
+# RL_FR1.sum
+plot(RL_FR1)
+
+```
+
+
+MODELE LINEAIRE SUR LE ROYAUME UNI
+
+AVEC TOUTES LES VARIABLES
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 60.9250189 16.9188764   3.601 0.000331 ***
+Date         0.0096150  0.0009922   9.691  < 2e-16 ***
+meteo       -6.8978365  0.2186886 -31.542  < 2e-16 ***
+moisDec     41.5510525  1.6821041  24.702  < 2e-16 ***
+moisFeb     48.6948747  1.7273093  28.191  < 2e-16 ***
+moisJan     52.3859927  1.7046536  30.731  < 2e-16 ***
+moisJul      6.4602457  2.2425405   2.881 0.004042 ** 
+moisMar     27.9285614  1.6674242  16.750  < 2e-16 ***
+moisMay     -5.9140261  1.7378134  -3.403 0.000689 ***
+moisNov     33.8329914  1.6723595  20.231  < 2e-16 ***
+moisOct      9.2148745  1.7485089   5.270 1.63e-07 ***
+moisSep     -4.0833156  1.9744293  -2.068 0.038858 *  
+jourMon      3.1513082  1.2441862   2.533 0.011449 *  
+jourSat     -7.7228136  1.2456305  -6.200 7.90e-10 ***
+jourSun     -9.6240351  1.2312928  -7.816 1.24e-14 ***
+jourThu      3.7834269  1.2488067   3.030 0.002504 ** 
+jourWed      3.1246969  1.2319863   2.536 0.011336 *  
+tmoy1       -1.4418691  0.2828710  -5.097 4.04e-07 ***
+tmoy2       -0.9463196  0.2843406  -3.328 0.000902 ***
+tmoy7       -0.5138258  0.2157424  -2.382 0.017399 *  
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 11.07 on 1131 degrees of freedom
+Multiple R-squared:  0.9735,	Adjusted R-squared:  0.9729 
+F-statistic:  1600 on 26 and 1131 DF,  p-value: < 2.2e-16
+
+EN ENLEVANT LES VARIABLES NON SIGNIFICATIVES
+Coefficients:
+              Estimate Std. Error t value Pr(>|t|)    
+(Intercept) 60.1043628 16.9356958   3.549 0.000403 ***
+Date         0.0096195  0.0009934   9.683  < 2e-16 ***
+meteo       -6.9155560  0.2180843 -31.710  < 2e-16 ***
+moisDec     41.6761938  1.6828049  24.766  < 2e-16 ***
+moisFeb     49.0435011  1.7210967  28.495  < 2e-16 ***
+moisJan     52.8198065  1.6953703  31.155  < 2e-16 ***
+moisJul      5.8479105  2.2253689   2.628 0.008709 ** 
+moisMar     28.2632305  1.6630420  16.995  < 2e-16 ***
+moisMay     -6.0142384  1.7384133  -3.460 0.000561 ***
+moisNov     33.9009239  1.6741497  20.250  < 2e-16 ***
+moisOct      9.0341510  1.7479378   5.168 2.79e-07 ***
+moisSep     -4.5194620  1.9656600  -2.299 0.021674 *  
+jourMon      3.1512761  1.2414883   2.538 0.011272 *  
+jourSat     -7.7561187  1.2323939  -6.294 4.42e-10 ***
+jourSun     -9.7963011  1.2233001  -8.008 2.87e-15 ***
+jourThu      3.9528274  1.2292057   3.216 0.001338 ** 
+jourWed      3.1211973  1.2282812   2.541 0.011182 *  
+tmoy1       -1.4286567  0.2802155  -5.098 4.01e-07 ***
+tmoy2       -1.0067491  0.2185875  -4.606 4.57e-06 ***
+tmoy7       -0.8581189  0.1407572  -6.096 1.48e-09 ***
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 11.09 on 1135 degrees of freedom
+Multiple R-squared:  0.9734,	Adjusted R-squared:  0.9729 
+F-statistic:  1886 on 22 and 1135 DF,  p-value: < 2.2e-16
+
+
+
+
+```{r}
+
+# UK ROYAUME UNI
+RL_UK<-lm(conso~.,data=base_UK)
+RL_UK.sum<-summary(RL_UK)
+# RL_UK.sum
+plot(RL_UK) # graphe des résidus incurvé
+
+# modèle avec les variables significatives
+RL_UK1<-lm(conso~Date+meteo+mois+jour+tmoy1+tmoy2+tmoy7, data=base_UK)
+RL_UK1.sum<-summary(RL_UK1)
+# RL_UK1.sum
+plot(RL_UK1)
+
+
+```
+
