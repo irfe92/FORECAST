@@ -1,0 +1,231 @@
+---
+title: "Synthese NL Pays Bas"
+author: "Nhu-Nguyen Ngo"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+
+#Load Library
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+library(caret)		
+library(ISLR)
+library(leaps)
+
+library(glmnet) # Poly, GAM
+library(boot) # Poly, GAM
+
+library(splines)
+
+library(caTools)
+library(randomForest)
+
+library(e1071) # SVR
+
+library(stargazer)
+library(ggplot2)
+library(questionr)
+
+
+
+# sur la base centrée réduite, sans les autres variables méteo
+don<-base_F_6P_cr
+head(don)
+
+# creation des variables Y et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train 2/3 individus et test 1/3
+set.seed(1)
+dim<-nrow(don)
+split=2/3
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+test=model.matrix(Y~.,data=don[-train,])# base de test
+Y.train=Y[train]
+X.train=X[train]
+Y.test=Y[-train]
+X.test=X[-train]
+don.train=don[train,]
+don.test=don[-train,]
+donYX.train=donYX[train,]
+donYX.test=donYX[-train,]
+
+names(don)
+
+```
+
+SELECTION VARIABLES REGSUBSET
+```{r}
+
+# toutes les variables: Date + Temp + cosinus + sinus + day_length + teff + seuil + T00 + Pays + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays + t1 + t2 + t3 + t4 + t5 + t6 + t7
+
+# variables liées à la température : Temp + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + t7
+
+
+
+# variables sélectionnées par regsubset forward MSE:  day_length + seuil + t1 + t3 + t4 + t5 + Pays + month + year 
+# variables sélectionnées par regsubset FW BIC:       Date + day_length + seuil + t1 + t3 + t4 + t5 + Pays + month + year + wday + quarter
+
+
+# variables sélectionnées par regsubset backward MSE: day_length + seuil + t1 + t3 + t5 + t7 + Pays + year  
+# variables sélectionnées par regsubset BW BIC:       Temp + day_length + seuil + t1 + t3 + t5 + t6+ t7 + Pays + year 
+
+
+# compilation des variables sélectionnées par regsubset : Temp + Date + day_length + seuil + t1 + t3 + t4 + t5 + t6 + t7 + Pays + month + year + wday + quarter
+
+```
+
+
+MODELES
+```{r}
+
+
+# modèle linéaire simple avec que les variables significatives RL_6P_tot2
+RL_6P<-lm(Y ~ Temp + day_length + seuil + t1 + t3 + t5 + t6 + t7 + Pays + day, data=don[train,])
+pred_RL_6P=predict(RL_6P, newdata=don.test, se=T)
+MSE_RL_6P= mean((Y.test-predict(RL_6P,don.test))^2)
+
+
+# modèle linéaire simple avec que les variables significatives sélectionnée par step
+RL_6P_step<-lm(formula = Y ~  Date + Temp + cosinus + day_length + teff + t1 + t3 + t5 + t6 + t7 + Pays + year + jc, data = don[train,])
+pred_RL_6P_step = predict(RL_6P_step, newdata=don.test, se=T)
+MSE_RL_6P_step= mean((Y.test-predict(RL_6P_step,don.test))^2) 
+
+
+# modèle linéaire avec interaction sur Temp en ne gardant que les variables significatives
+RLI_6P<-lm(Y~ cosinus + day_length + teff + seuil+ Pays + month + ( seuil + Pays + month) *Temp, data=don[train,]) 
+pred_RLI_6P=predict(RLI_6P, newdata=don.test, se=T)
+MSE_RLI_6P= mean((Y.test-predict(RLI_6P,don.test))^2)
+
+
+# modèle linéaire avec interaction multiples sur les variables liées à la température (Temp, teff, seuil, T00 et t1 à t7)
+# en ne gardant que les variables significatives
+RLI_6P_multi <-lm(Y ~ cosinus + day_length + Pays + month + t5 + t6 + Date*t5 + cosinus*t3 + sinus*t7 + day_length*(Temp + teff + seuil + t2 + t3) + Pays*(Temp + teff + T00 + t1 + t2 + t3 + t4 + t6 + t7) + month*(Temp + seuil + T00), data=don.train)
+pred_RLI_6P_multi=predict(RLI_6P_multi, newdata=don.test, se=T)
+MSE_RLI_6P_multi= mean((Y.test-predict(RLI_6P_multi,don.test))^2)
+
+
+# modèle linéaire avec interaction sur Temp (poly 2) en ne gardant que les variables significatives
+RLI_6P_P2<-lm(Y~ cosinus + day_length + teff + seuil + Pays + month + year + lagholidays + leadholidays + (seuil + T00 +  Pays + month)*I(poly(Temp,2)), data=don[train,]) 
+pred_RLI_6P_P2=predict(RLI_6P_P2, newdata=don.test, se=T)
+MSE_RLI_6P_P2= mean((Y.test-predict(RLI_6P_P2,don.test))^2)
+
+
+# poly sur le critère du MSE,issu de la validation hold out train/test et k_folds
+POLY_6P<- lm(formula=Y~poly(X,10, raw=T), data=donYX.train)
+pred_POLY_6P=predict(POLY_6P, newdata=donYX.test, se=T) # length 383
+MSE_POLY_6P= mean((Y.test-predict(POLY_6P,donYX.test))^2)
+length(pred_POLY_6P$fit)
+
+
+# modèle spline,CV pour choisir nombre de noeuds et natural splins vs basic splines
+SP_6P=lm(Y~bs(X,df=4), data=donYX.train) 
+pred_SP_6P=predict(SP_6P, newdata=donYX.test, se=T)
+MSE_SP_6P= mean((Y.test-predict(SP_6P,donYX.test))^2)
+
+
+# modèle GAM 
+GAM_6P=lm(Y~ poly(Temp,7) + cosinus + day_length + Pays + T00 + t1 + t3 + t5 + t6, data = don.train) 
+pred_GAM_6P=predict(GAM_6P, newdata=don.test, se=T)
+MSE_GAM_6P= mean((Y.test-predict(GAM_6P,don.test))^2)
+
+
+# # Random Forest , avec mtry choisi par CV hold out, ntree=500 par défaut
+# RF_6P<-randomForest(Y~., mtry = 5, data=don[train,])
+pred_RF_6P = predict(RF_6P, don.test)
+MSE_RF_6P= mean((Y.test-predict(RF_6P,don.test))^2)
+
+
+# SVR
+SVR_6P = svm(Y~.,don[train,])
+pred_SVR_6P = predict(SVR_6P, don.test)
+MSE_SVR_6P= mean((Y.test-predict(SVR_6P,don.test))^2)
+
+
+
+```
+
+
+SYNTHESE DES MODELES objet RF et SVR pas reconnu par stargazer
+```{r}
+
+stargazer(RL_6P, RLI_6P, RLI_6P_multi, POLY_6P, SP_6P, GAM_6P, type='text', flip=TRUE, title="Results", align=TRUE, keep=c("Date"), column.labels = c("RL", "RLI", "RLI2","poly","Spline" ,"GAM"), model.names = TRUE, single.row = TRUE)
+
+# le R² ajusté est le plus élevé pour RLI2 (0.988) et le plus faible pour Poly et Spline à 0.09
+# le residual error est le plus faible pour RLI2 (0.11) et le plus élevé pour poly et Spline (0.95)
+# F-stat est le plus élevé pour RLI  et le plus faible pour poly
+
+```
+
+
+
+```{r}
+# comparaison des MSE entre les modèles RL, RLI, Poly, Spline, GAM, SVR
+MSE_tot=c(MSE_RL_6P, MSE_RLI_6P, MSE_RLI_6P_multi,MSE_POLY_6P, MSE_SP_6P,MSE_GAM_6P,MSE_RF_6P,MSE_SVR_6P)
+
+# graphe des MSE
+graph<-barplot(MSE_tot, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
+axis(1, labels=c("Reg.Lin", "RLI","RLI2" ,"Poly" ,"SPLINE","GAM", "RF", "SVR"), at = graph)
+
+```
+
+```{r}
+
+# comparaison des MSE entre les modèles RL, RLI, RL2, GAM, RF, SVR
+MSE_tot_r=c(MSE_RL_6P, MSE_RLI_6P, MSE_RLI_6P_multi ,MSE_GAM_6P,MSE_RF_6P,MSE_SVR_6P)
+
+# graphe des MSE
+graph<-barplot(MSE_tot_r, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
+axis(1, labels=c("Reg.Lin", "RLI","RLI2" ,"GAM", "RF", "SVR"), at = graph)
+
+```
+
+
+MSE minimal
+```{r}
+which.min(MSE_tot) # c'est le modèle RF qui présente la plus petite MSE
+```
+
+
+graphe des valeurs prédites selon les modèles
+```{r}
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles" )
+lines(don.test$Date,pred_RL_6P$fit, col="purple") # length 387
+lines(don.test$Date,pred_RLI_6P_multi$fit, col="cyan") # length 387
+lines(don.test$Date,pred_GAM_6P$fit, col="yellow") # length 387
+lines(don.test$Date, pred_SVR_6P, col="blue") # length 387
+lines(don.test$Date, pred_RF_6P, col="red") # length 387
+lines(don.test$Date,pred_POLY_6P$fit, col="pink") # length 387
+lines(don.test$Date,pred_SP_6P$fit, col="green") # length 387
+
+```
+
+```{r}
+# graphes avec les 3 meilleurs modèles RLI, RF, SVR
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles 6 pays GAM(yellow), SVR(blue), RF(red)" )
+points(don.test$Date,pred_RLI_6P_multi$fit, col="yellow")
+points(don.test$Date, pred_SVR_6P, col="blue")
+points(don.test$Date, pred_RF_6P, col="red")
+
+```
+
+
+
+
+

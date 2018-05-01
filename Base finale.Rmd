@@ -1,0 +1,485 @@
+---
+title: "Base New"
+author: "NNN"
+date: "17 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Nouvelle base de données
+("Date", "Pays", "Conso", "tmoy", "month", "year", "day", "weekend", "cosinus", "sinus", "wday", "quarter", "season", "doy", "holidays", "day_length", "jc", "lagholidays", "leadholidays", "tmoy1", "tmoy2", "teff", "seuil", "T00", "Wind_Speed", "Cloud_covering", "Solar_radiation", "Raining_Level", "Pressure")
+
+
+```{r}
+# packages 
+library(stats)
+library(questionr)
+library(dplyr)
+
+load(file.choose()) # chargement de final.formats.Rdata avec les nouvelles variables
+
+base_F<-data.frame(final.formats)
+head(base_F)
+names(base_F)
+summary(base_F)
+str(base_F)
+
+
+```
+
+
+
+```{r}
+
+
+# ==========================================================================
+# Remove outliers from base "final.formats"
+# ==========================================================================
+
+
+Pays<-unique(final.formats$Pays)
+
+outlier_<-out_<-idout_<-NULL
+
+for(i in Pays)
+{
+
+base<-subset(final.formats, Pays==i)
+base<-base[,c("Date", "Conso")]
+colnames(base)[2]<-i
+base<-data.frame(base)
+
+for (m in c(1:12))
+{
+var_name<-base[as.numeric(format(base$Date, "%m"))==m,i]
+var_name_dated<-base[as.numeric(format(base$Date, "%m"))==m,c("Date",i)]
+
+ tot <- sum(!is.na(var_name))
+  na1 <- sum(is.na(var_name))
+  m1 <- mean(var_name, na.rm = T)
+  par(mfrow=c(2, 2), oma=c(0,0,3,0))
+  boxplot(var_name, main="With outliers")
+  hist(var_name, main="With outliers", xlab=NA, ylab=NA)
+  outlier <- boxplot.stats(var_name)$out
+  outlierRow = which(var_name %in% c (outlier))
+  mo <- mean(outlier)
+  var_name <- ifelse(var_name %in% outlier, NA, var_name)
+  boxplot(var_name, main="Without outliers")
+  hist(var_name, main="Without outliers", xlab=NA, ylab=NA)
+  title(paste("Outlier Check", ":", i,  month.abb[m], sep=" "), outer=TRUE)
+  na2 <- sum(is.na(var_name))
+  message(paste("Outlier Information", ":", i,  month.abb[m], sep=" "))
+  message("Outliers identified: ", na2 - na1, " from ", tot, " observations")
+  message("Proportion (%) of outliers: ", (na2 - na1) / tot*100)
+  message("Mean of the outliers: ", mo)
+  m2 <- mean(var_name, na.rm = T)
+  message("Mean without removing outliers: ", m1)
+  message("Mean if we remove outliers: ", m2)
+
+if (mo=="NaN"){print(message('No outliers'))}else{
+print(info<-data.frame(Dates=var_name_dated[c(outlierRow),"Date"], IdConso=i, IdRegion=i, OutValue=outlier))}
+base[as.numeric(format(base$Date, "%m"))==m,i]<-var_name
+}
+
+ final.formats[which(final.formats$Pays==i),]$Conso<-base[,2]
+
+
+}    
+
+base_F<-final.formats
+summary(base_F)
+
+```
+
+
+
+```{r}
+# TRAVAIL SUR LES DONNEES --------------------------------------------------------------------------
+
+
+# noms des variables dans un vecteur
+dput(names(base_F))
+# 29 variables
+# c("Date", "Pays", "Conso", "tmoy", "month", "year", "day", "weekend", "cosinus", "sinus", "wday", "quarter", "season", "doy", "holidays", "day_length", "jc", "lagholidays", "leadholidays", "tmoy1", "tmoy2", "teff", "seuil", "T00", "Wind_Speed", "Cloud_covering", "Solar_radiation", "Raining_Level", "Pressure")
+
+
+# renommer la variable tmoy en Temp (questionr)
+base_F <- rename.variable(base_F, "tmoy", "Temp")
+
+
+# suppression des variables doy et tmoy1 et tmoy2 (qui seront crées après avec un autre nom)
+dim(base_F)
+base_F<-base_F[,-which(colnames(base_F)=="doy")] 
+base_F<-base_F[,-which(colnames(base_F)=="tmoy1")] 
+base_F<-base_F[,-which(colnames(base_F)=="tmoy2")] 
+dim(base_F)
+
+
+# variables à convertir en facteur
+names_factor=as.vector(c("month", "year", "day", "weekend", "wday", "season","doy","holidays", "jc", "lagholidays", "leadholidays", "Pays"))
+# var_factor=as.vector(outer("base_F$",names_factor, paste, sep=""))
+# var_factor
+
+# transformation en facteur façon manuelle (à améliorer avec une boucle)
+base_F$month<-as.factor(base_F$month)
+base_F$year<-as.factor(base_F$year)
+base_F$day<-as.factor(base_F$day)
+base_F$weekend<-as.factor(base_F$weekend)
+base_F$wday<-as.factor(base_F$wday)
+base_F$season<-as.factor(base_F$season)
+base_F$holidays<-as.factor(base_F$holidays)
+base_F$jc<-as.factor(base_F$jc)
+base_F$lagholidays<-as.factor(base_F$lagholidays)
+base_F$leadholidays<-as.factor(base_F$leadholidays)
+base_F$Pays<-as.factor(base_F$Pays)
+
+
+# transformation en variable numeric
+base_F$day_length<-as.numeric(base_F$day_length)
+
+
+#creation  temperatures retardees
+library(dplyr)
+base_F %>%
+  plyr::mutate(t1=lag(base_F$Temp, 1))%>%
+  plyr::mutate(t2=lag(base_F$Temp, 2))%>%
+  plyr::mutate(t3=lag(base_F$Temp, 3))%>%
+  plyr::mutate(t4=lag(base_F$Temp, 4))%>%
+  plyr::mutate(t5=lag(base_F$Temp, 5))%>%
+  plyr::mutate(t6=lag(base_F$Temp, 6))%>%
+  plyr::mutate(t7=lag(base_F$Temp, 7))->base_F
+
+
+# vérification de la base
+str(base_F)
+dim(base_F) 
+# base_F: 6990 observations, 33 variables
+
+# 28 variables communes à tous les pays:
+# "Date"  "Pays"  "Conso"  "Temp"  "month"  "year"  "day"  "weekend"  "cosinus"  "sinus"   "wday"            "quarter"   "season"  "holidays" "day_length"  "jc" "lagholidays"  "leadholidays"   t1"   "t2"    "t3"   "t4"   "t5"   "t6"   "t7"   "teff"   "seuil"   "T00"  
+
+# 5 variables météo autre que temp: "Wind_Speed"  "Cloud_covering"  "Solar_radiation"   "Raining_Level"   "Pressure"        " 
+# les variables méteo autres que températures (wind, cloud, solar, rain, pressure) ne sont complètes que pour NL.
+# Pour BE, il y a wind, cloud, solar, rain mais pas pressure
+# elles sont manquantes pour DE, FR, UK, ES
+
+# creation de la base 6 pays sans les autres variables meteo: 6990 observations, 28 variables
+autre_meteo<-c("Wind_Speed","Cloud_covering","Solar_radiation","Raining_Level","Pressure")
+am=length(autre_meteo)
+vecteur_am=as.vector(rep(NA,am))
+for (i in 1:am) {vecteur_am[i]=which(colnames(base_F)==autre_meteo[i])}
+base_F_6P<-base_F[,-vecteur_am] # 6990 obs 28 variables
+summary(base_F_6P)
+# suppresion des valeurs manquantes de la base 6 pays
+base_F_6P=na.omit(base_F_6P)  # 6922 obs 28 variables  
+
+
+
+#-------------------------------------------------------------------------------------------
+# creation de sous base par pays
+
+#pour NL, les variables méteo autres que températures (wind, cloud, solar, rain, pressure) sont complètes
+base_NL_F_am<-subset(base_F,Pays=="NL") # 1170 observations, 33 variables
+# pour chaque base pays on enlève la variable Pays devenue inutile
+base_NL_F_am<-base_NL_F_am[,-which(colnames(base_NL_F_am_nona)=="Pays")] # 1170 observations,32 variables
+# suppresion des valeurs manquantes de la base_NL_F: 
+base_NL_F_am=na.omit((base_NL_F_am)) # 1159 observations, 32 variables
+
+
+
+# Pour BE, il y a wind, cloud, solar, rain mais pas pressure: 1169 observations, 32 variables
+base_BE_F_am<-subset(base_F,Pays=="BE")
+base_BE_F_am<-base_BE_F_am[,-which(colnames(base_BE_F_am)=="Pressure")]
+summary(base_BE_F_am)
+# pour chaque base pays on enlève la variable Pays devenue inutile
+base_BE_F_am<-base_BE_F_am[,-which(colnames(base_BE_F_am)=="Pays")] # 1169 observations, 31 variables
+# suppresion des valeurs manquantes de la base_BE_F 1160 observations, 31 variables
+base_BE_F_am=na.omit((base_BE_F_am))
+
+
+
+# pour les autres pays, les variables meteo autre que Temp n'existent pas, on part de la base_F_6P
+# création des bases par pays, y compris BE et NL, sans les autres variables meteo
+base_NL_F<-subset(base_F_6P,Pays=="NL") # 1170 observations 28 variables
+base_BE_F<-subset(base_F_6P,Pays=="BE") # 1169 observations 28 variables
+base_DE_F<-subset(base_F_6P,Pays=="DE") # 1169 observations 28 variables
+base_UK_F<-subset(base_F_6P,Pays=="UK") # 1168 observations 28 variables
+base_ES_F<-subset(base_F_6P,Pays=="ES") # 790 observations 28 variables
+base_FR_F<-subset(base_F_6P,Pays=="FR") # 1524 observations 28 variables
+
+
+
+# pour chaque base pays on enlève la variable Pays devenue inutile
+base_NL_F<-base_NL_F[,-which(colnames(base_NL_F)=="Pays")] # 1170 observations, 27 variables
+base_BE_F<-base_BE_F[,-which(colnames(base_BE_F)=="Pays")] # 1169 observations, 27 variables
+base_DE_F<-base_DE_F[,-which(colnames(base_DE_F)=="Pays")] # 1169 observations 27 variables
+base_UK_F<-base_UK_F[,-which(colnames(base_UK_F)=="Pays")]  # 1168 observations 27 variables
+base_ES_F<-base_ES_F[,-which(colnames(base_ES_F)=="Pays")] # 790 observations 27 variables
+base_FR_F<-base_FR_F[,-which(colnames(base_FR_F)=="Pays")] # 1524 observations 27 variable
+
+
+# pour chaque base pays on supprime les NA
+base_NL_F<-na.omit(base_NL_F) # 1159 observations, 27 variables
+base_BE_F<-na.omit(base_BE_F) # 1160 observations, 27 variables
+base_DE_F<-na.omit(base_DE_F) # 1158 observations 27 variables
+base_UK_F<-na.omit(base_UK_F)  # 1153 observations 27 variables
+base_ES_F<-na.omit(base_ES_F) # 788 observations 27 variables
+base_FR_F<-na.omit(base_FR_F) # 1504 observations 27 variable
+                 
+
+# # base de travail DON avec les 6 pays et sans variables meteo autres que temp
+don<-base_F_6P
+dim(don)
+unique(don$Pays) # 6 pays NL UK ES FR DE BE
+
+
+
+```
+
+
+```{r}
+#-----------------------------------------------------------------
+# centrer et reduire sur les variables numériques
+#-----------------------------------------------------------------
+library(questionr)
+
+
+# sur base totale
+don<-base_F_6P
+summary (don)
+str(don)
+
+ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
+ind.qual <- sapply(don, function(x) is.factor(x))
+
+# variables quantitative
+don.quant <- don[ ,ind.quant]
+
+# variables qualitative
+don.qual <- don[ ,ind.qual]
+
+#centrer et reduire les variables numeriques
+don.quant.cr<-scale(don.quant)
+# apply(don.quant.cr, MARGIN = 2, FUN=mean)
+# apply(don.quant.cr, MARGIN = 2, FUN=sd)
+
+#reformer la base complete don_cr centree et reduite, en n'oubliant pas la variable Date
+don_cr<-cbind( don$Date, don.quant.cr,don.qual)
+don_cr <- rename.variable(don_cr, "don$Date", "Date")
+summary(don_cr)
+
+base_F_6P_cr<-don_cr
+
+
+
+```
+
+
+```{r}
+# BASE PAR PAYS CENTREEE REDUITES
+
+# creation de sous base par pays, 
+base_BE_F_cr<-subset(base_F_6P_cr,Pays=="BE")
+base_DE_F_cr<-subset(base_F_6P_cr,Pays=="DE")
+base_NL_F_cr<-subset(base_F_6P_cr,Pays=="NL")
+base_UK_F_cr<-subset(base_F_6P_cr,Pays=="UK")
+base_ES_F_cr<-subset(base_F_6P_cr,Pays=="ES")
+base_FR_F_cr<-subset(base_F_6P_cr,Pays=="FR")
+
+# pour chaque base pays on enlève la variable Pays devenue inutile
+base_BE_F_cr<-base_BE_F_cr[,-which(colnames(base_BE_F_cr)=="Pays")] # 1160 OBS 27 VAR
+base_DE_F_cr<-base_DE_F_cr[,-which(colnames(base_DE_F_cr)=="Pays")] # 1158 OBS 27 VAR
+base_NL_F_cr<-base_NL_F_cr[,-which(colnames(base_NL_F_cr)=="Pays")] # 1159 OBS 27 VAR
+base_UK_F_cr<-base_UK_F_cr[,-which(colnames(base_UK_F_cr)=="Pays")] # 1153 OBS 27 VAR
+base_ES_F_cr<-base_ES_F_cr[,-which(colnames(base_ES_F_cr)=="Pays")] # 788 OBS 27 VAR
+base_FR_F_cr<-base_FR_F_cr[,-which(colnames(base_FR_F_cr)=="Pays")] # 1504 OBS 27 VAR
+
+
+```
+
+
+PLOT TEMPERATURE VS DATE
+```{r}
+
+don<-base_F_6P
+
+# plot températures vs date
+plot(don$Date,don$Temp) # faire des lignes différentes par pays
+plot(don$Date,don$day_length) # faire des lignes différentes par pays
+
+library(lattice)
+Temp_BE=don$Temp[which(don$Pays=="BE")]
+Temp_DE=don$Temp[which(don$Pays=="DE")]
+Temp_NL=don$Temp[which(don$Pays=="NL")]
+Temp_FR=don$Temp[which(don$Pays=="FR")]
+Temp_ES=don$Temp[which(don$Pays=="ES")]
+Temp_UK=don$Temp[which(don$Pays=="UK")]
+
+date_BE=don$Date[which(don$Pays=="BE")]
+date_DE=don$Date[which(don$Pays=="DE")]
+date_NL=don$Date[which(don$Pays=="NL")]
+date_FR=don$Date[which(don$Pays=="FR")]
+date_ES=don$Date[which(don$Pays=="ES")]
+date_UK=don$Date[which(don$Pays=="UK")]
+
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_FR,Temp_FR, col="blue")
+lines(date_ES,Temp_ES, col="yellow") # température ES supérieure à celle des autres pays
+lines(date_UK,Temp_UK, col="pink")
+
+
+
+```
+
+```{r}
+# sur base centrée réduite
+
+don<-base_F_6P_cr
+dim(don)
+
+# # plot températures vs date
+# plot(don$Date,don$Temp) # faire des lignes différentes par pays
+# plot(don$Date,don$day_length) # faire des lignes différentes par pays
+
+library(lattice)
+Temp_BE_cr=don$Temp[which(don$Pays=="BE")]
+Temp_DE_cr=don$Temp[which(don$Pays=="DE")]
+Temp_NL_cr=don$Temp[which(don$Pays=="NL")]
+Temp_FR_cr=don$Temp[which(don$Pays=="FR")]
+Temp_ES_cr=don$Temp[which(don$Pays=="ES")]
+Temp_UK_cr=don$Temp[which(don$Pays=="UK")]
+
+date_BE_cr=don$Date[which(don$Pays=="BE")]
+date_DE_cr=don$Date[which(don$Pays=="DE")]
+date_NL_cr=don$Date[which(don$Pays=="NL")]
+date_FR_cr=don$Date[which(don$Pays=="FR")]
+date_ES_cr=don$Date[which(don$Pays=="ES")]
+date_UK_cr=don$Date[which(don$Pays=="UK")]
+
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_FR_cr,Temp_FR_cr, col="blue")
+lines(date_ES_cr,Temp_ES_cr, col="yellow") # température ES supérieure à celle des autres pays
+lines(date_UK_cr,Temp_UK_cr, col="pink")
+
+length(date_BE_cr)
+
+
+```
+
+GROUPE BE DE NL
+```{r}
+# groupe homogène en températures BE DE NL
+
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+
+```
+
+```{r}
+# groupe homogène en températures BE DE NL centré réduit
+
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+
+```
+
+GROUPE BE DE NL VS FR
+```{r}
+
+# comparaison groupe BE DE NL avec FR
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_FR,Temp_FR, col="blue") # température FR supérieure à celle des autres pays
+
+
+```
+
+```{r}
+# comparaison groupe BE DE NL avec FR centré réduit
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_FR_cr,Temp_FR_cr, col="blue") # température FR supérieure à celle des autres pays
+
+
+```
+
+GROUPE BE DE NL VS UK
+```{r}
+# comparaison groupe BE DE NL avec UK
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_UK,Temp_UK, col="pink") # UK amplitude moins forte
+
+```
+
+```{r}
+# comparaison groupe BE DE NL avec UK centré réduit
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_UK_cr,Temp_UK_cr, col="pink") # UK amplitude moins forte
+
+```
+
+GROUPE BE DE NL VS ES
+```{r}
+# comparaison groupe BE DE NL avec UK
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_ES,Temp_ES, col="yellow") # UK amplitude moins forte
+
+```
+
+```{r}
+# comparaison groupe BE DE NL avec UK centré réduit
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_ES_cr,Temp_ES_cr, col="yellow") # UK amplitude moins forte
+
+```
+
+```{r}
+library(ggplot2)
+don<-base_F_6P
+temp <- qplot(Pays, Temp, data = don, geom = "boxplot")
+temp
+
+```
+
+
+```{r}
+DL <- qplot(Pays, day_length, data = don, geom = "boxplot")
+DL
+
+```
+
+```{r}
+
+CS <- qplot(Pays, Conso, data = don, geom = "boxplot")
+CS
+
+```
+
+```{r}
+don<-base_F_6P_cr
+
+CS <- qplot(Pays, Conso, data = don, geom = "boxplot")
+CS
+
+```
+
+
