@@ -1,0 +1,124 @@
+---
+title: "regression non linaires Splines GAM"
+author: "Nhu-Nguyen"
+date: "7 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+SPLINES sur base totale
+
+```{r}
+library(splines)
+Y=don$Y # CONSO
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+str(donYX)
+
+set.seed(1)
+train=sample(nroxw(X),2*nrow(X)/3)
+Y.train=Y[train]
+Y.test=Y[-train]
+X.test=X[-train]
+str(X.test)
+
+#basic splines bs, natural splines ns
+# noeuds=c(,)
+# l'option df produit des splines avec des noeuds placés sur les quantiles 25 50 et 75
+attr(bs(X,df=6),"knots") #donne le noeuds issus de df
+fit=lm(Y~bs(X,df=6), data=donYX[train,])
+pred=predict(fit, newdata=list(X=X.test), se=T)
+names(pred) # fit"            "se.fit"         "df"             "residual.scale"
+str(pred)
+
+
+plot(X,Y, xlab = "meteo", ylab="Conso")
+
+plot(X.test,Y.test, xlab = "meteo", ylab="Conso") # on retrouve 3 groupes de données
+lines(X.test,pred$fit) # le prédictions n'ont été faites que pour le groupe intermédiaires
+
+
+```
+
+SPLINES SUR Belgique Conso en fonction de la température
+
+```{r}
+
+library(questionr)
+base_BE <- rename.variable(base_BE, "conso", "Y")
+don<-base_BE
+
+library(splines)
+Y=don$Y 
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+str(donYX)
+nrow(donYX)
+
+set.seed(1)
+train=sample(nrow(donYX),2*nrow(donYX)/3)
+Y.train=Y[train]
+Y.test=Y[-train]
+X.test=X[-train]
+str(X.test)
+
+#basic splines bs
+# l'option df produit des splines avec des noeuds placés sur les quantiles 25 50 et 75
+attr(bs(X,df=6),"knots") #donne le noeuds issus de df
+
+fit_bs=lm(Y~bs(X,df=6), data=donYX[train,])
+pred_bs=predict(fit_bs, newdata=list(X=X.test), se=T)
+# names(pred_bs) # fit"            "se.fit"         "df"             "residual.scale"
+# str(pred_bs)
+
+#natural splines ns
+attr(ns(X,df=6),"knots") #donne le noeuds issus de df
+
+fit_ns=lm(Y~ns(X,df=6), data=donYX[train,])
+pred_ns=predict(fit_ns, newdata=list(X=X.test), se=T)
+
+
+plot(X.test,Y.test, xlab = "meteo", ylab="Conso")
+lines(X.test,pred_bs$fit, col="blue") 
+lines(X.test,pred_ns$fit, col="red") 
+
+```
+
+
+GAM sur la Belgique
+
+amélioration du R² ajusté:
+Multiple R-squared:  0.9708,	Adjusted R-squared:  0.9702 
+F-statistic:  1786 on 21 and 1130 DF,  p-value: < 2.2e-16
+
+beaucoup de variables significatives
+
+on améliore la graphe des résidus
+
+
+```{r}
+library(questionr)
+base_BE <- rename.variable(base_BE, "conso", "Y")
+don<-base_BE
+
+
+library(splines) # ns() ne marche que si les variables sont numériques. Les variables qualitatives seront transformées en dummy variables
+gam_BE=lm(Y~ns(meteo,4)+jour+mois, data=don)
+summary(gam)
+plot(gam)
+
+install.packages("gam")
+library(gam)
+
+```
+
+
+
+
+
+

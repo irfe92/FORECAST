@@ -1,0 +1,345 @@
+---
+title: "Random Forest SVR"
+author: "Nhu-Nguyen"
+date: "15 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+RANDOM FOREST BASE TOTALE
+
+randomForest(formula = Y ~ ., data = train) 
+               Type of random forest: regression
+                     Number of trees: 500
+No. of variables tried at each split: 4
+
+          Mean of squared residuals: 1.950608e+14
+                    % Var explained: 99.16
+
+```{r}
+# faire parallelisation soit par R soit par Spark
+
+
+
+```
+
+
+```{r}
+library(caTools)
+library(randomForest)
+library(ggplot2)
+
+don<-base_F_6P_cr
+head(don)
+
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+head(don)
+
+# train and test base TOTALE
+# prendre base.nona pour éviter les valeurs manquantes
+set.seed(1)
+split=sample.split(don$Y, SplitRatio=2/3)
+train=subset(don,split==TRUE)
+test=subset(don,split==FALSE)
+
+```
+
+
+```{r}
+# modelisation sur train, par défaut ntree=500
+rf_total<-randomForest(Y~., data=train)
+print(rf_total)
+# names(rf_total)
+```
+
+
+```{r}
+# plot MSE selon le nombre d'arbres: la valeur de MSE baisse rapidement et stagne à partir de 200 environ
+plot(rf_total$mse)
+
+```
+
+
+```{r}
+
+# prediction sur test
+rf_total_pred<-predict(rf_total,test)
+rf_total_pred_sum<-summary(rf_total_pred)
+rf_total_pred_sum
+
+
+# plot des valeurs prédites vs valeurs réelles
+ggplot() +
+  geom_line(aes(x = test$Date, y = test$Y),
+             colour = 'red') +
+  geom_line(aes(x = test$Date, y = rf_total_pred),
+            colour = 'blue') +
+  ggtitle('Random Forest Regression tous pays, en bleu prédiction') +
+  xlab('date') +
+  ylab('conso')
+
+```
+
+
+
+RANDOM FOREST BELGIQUE
+
+RANDOM FOREST base et variables
+```{r}
+# RANDOM FOREST BELGIQUE
+# on peut régler deux éléments : 
+# ntree: le nombre d’arbres construits par l’algorithme 
+# mtry: le nombre de variables testées à chaque division. 
+# la valeur par défaut de mtry correspond à la racine carrée du nombre de variables
+
+library(caTools)
+library(randomForest)
+library(ggplot2)
+
+don<-base_BE_F_cr
+head(don)
+dim(don)
+sqrt(ncol(don)) # = valeur mtry par défaut soit 5 pour base BE
+
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+head(don)
+
+# train and test base BE
+# prendre base.nona pour éviter les valeurs manquantes
+set.seed(1)
+split=sample.split(don$Y, SplitRatio=2/3)
+train=subset(don,split==TRUE)
+test=subset(don,split==FALSE)
+
+```
+
+RANDOM FOREST modelisation
+```{r}
+# modelisation sur train, par défaut ntree=500
+RF_BE_train<-randomForest(Y~., data=train, ntree = 500, mtry = 5)
+# summary(RF_BE_train)
+print(RF_BE_train)
+# names(RF_BE) 
+# "call"            "type"            "predicted"       "mse"             "rsq"            
+# "oob.times"       "importance"      "importanceSD"    "localImportance" "proximity"      
+# "ntree"           "mtry"            "forest"          "coefs"           "y"              
+# "test"            "inbag"           "terms" 
+```
+
+RANDOM FOREST MSE plot
+```{r}
+# plot MSE selon le nombre d'arbres: la valeur de MSE baisse rapidement et stagne à partir de 200 environ
+plot(RF_BE_train$mse, xlab = "nombre d'arbres", ylab = "MSE")
+
+```
+
+RANDOM FOREST choix de mtry par CV hold out
+```{r}
+# CHOIX DE MTRY PAR CV HOLD OUT
+
+# train & test datasets
+set.seed(1)
+dim<-nrow(don)
+index<-sample(dim,2*dim/3)
+train=don[index,]
+test=don[-index,]
+
+# boucle de test
+m=10 # mtry max à tester. Par défaut ntree=500
+mse.rf=rep(0,m)
+for(i in 1:m) {
+  model <- randomForest(Y~., data=train, mtry = i)
+  mse.rf[i] <- mean((test$Y-predict(model,test))^2)
+  }
+
+# graphe de MSE
+plot(mse.rf, xlab="mtry", ylab="MSE", main="MSE selon mtry")
+
+```
+
+RANDOM FOREST choix de mtry par CV résultats
+```{r}
+which.min(mse.rf) # mtry=7 
+
+# nous retiendrons donc mtry= 7
+
+```
+
+
+RANDOM FOREST choix de ntree par CV: pas stable
+```{r}
+
+# CHOIX DE NTREE PAR CV HOLD OUT
+set.seed(1)
+dim<-nrow(don)
+index<-sample(dim,2*dim/3)
+train=don[index,]
+test=don[-index,]
+
+
+# résultats très instables
+# tests sur c(50,100,150,200,250,300,350,400,450,500) min MSE pour 100 250 450 300 250 400 300 350 200 250
+
+# tests sur c(100,200,300,400,500,600,700,800,900,1000) 
+# min MSE pas stable à ntree=200 700 300 100 900 200 200 800 300 700 300 200 500 900  700  600  600 1000
+
+# tests sur c(500,1000,1500,2000,2500,3000), min MSE pour 1000 2500 2000 1500  500 3000
+# test sur c(1000,2500,5000), min MSE pour 2500
+# test sur c(1000,2000,2500,3000,4000,5000) min MSE pour 2500 2000 1000 2500 1000 1000
+# test sur c(1000,2000,2500,3000,4000,5000,7000) min MSE pour 2000, 2000, 1000, 2000, 7000
+# test sur c(1000,2000,3000,4000,5000,6000) min MSE pour 4000 3000 3000 2000 2000
+# test sur c(100,200,300,700,1000,2000,3000,4000) min MSE 3000 2000 4000  200 3000 4000 700 100 4000 100
+
+# test sur c(50,100,150,200,250,300,350,400,450,500,600,700,800,900,1000,2000,2500,3000,300,4000,5000,7000)
+# min MSE 800 200 50 250 200 2000 50 100 300 250 450 350 200 500 1000 100 250 900 2500 800 300 350 450 100 1000
+# 350 900 300 250 100 900 350 350 100 300 600 350 350 900 150 150 350 700  50 200
+# 300  450  400  300  200  100  100  450  300  300 2000  350  250  350  600  450  350 50 2500 300
+
+# test sur c(50,100,150,200,250,300,350,400,450,500)  min MSE pour 350 150 400 100 200 350 400 150 200 400 450 150 450 400 100 400 300 200 450 150 300 100 300 300 300 100 200 100 350 100
+
+# seq(100,500,by=20) 400 500 380 160 440 220 260 440 480 400 260 260 260  NA 260 260  NA 480 260 260  NA  NA  NA 260  NA 260  NA  NA 260  NA
+
+Ntree=seq(100,500,by=20)  # ntree à tester
+d=length(Ntree)
+nb=30 # nombre de tests de cross validation
+mse.rf.tree=rep(NA,d*nb)
+res_ntree=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+  
+  for(i in 1:d) {
+    model <- randomForest(Y~., data=train, mtry = 7, ntree=Ntree[i])
+    mse.rf.tree[i+j-1] <- mean((test$Y-predict(model,test))^2)
+  }  
+  
+  res_ntree[j]=Ntree[which.min(mse.rf.tree)]
+ 
+}
+
+res_ntree
+# plot(mse.rf.tree, xlab="ntree", ylab="MSE", main="MSE selon ntree")
+
+# graphe des MSE du choix de ntree
+Ntree[which.min(mse.rf.tree)]
+plot(mse.rf.tree, xlab="ntree", ylab="MSE", main="MSE selon ntree")
+
+
+
+# CV avec randomforest pour sélectionner des variables
+# donX <- don[,!colnames(don)=="Y"] #supprimer la colonne X2
+# head(donX)
+# nrow(donX)
+# length(don$Y)
+# rfcv(don[train,], train$Y, cv.fold=5, scale="log", step=0.5, mtry=function(p) max(1, floor(sqrt(p))))
+
+
+# # prediction sur test
+# RF_BE_pred_test<-predict(RF_BE,test)
+
+# prediction sur l'ensemble de la base BE
+RF_BE_pred<-predict(RF_BE,don)
+RF_BE_pred_sum<-summary(RF_BE_pred)
+# RF_BE_pred_sum
+
+# MSE Random Forest sur l'ensemble de la base
+RF_BE<-randomForest(Y~., data=don)
+mse_RF_BE= mean((Y-predict(RF_BE,don))^2)
+
+# plot des valeurs prédites vs valeurs réelles
+ggplot() +
+  geom_line(aes(x = don$Date, y = don$Y),
+             colour = 'red') +
+  geom_line(aes(x = don$Date, y = rf_BE_pred),
+            colour = 'blue') +
+  ggtitle('Random Forest Regression tous pays, en bleu prédiction') +
+  xlab('date') +
+  ylab('conso')
+
+# comment vérifier la performance du modele random forest
+
+# faire cross validation
+
+# a faire compare the Out of Bag Sample Errors and Error on Test set
+matplot(1:mtry , cbind(oob.err,test.err), pch=19 , col=c("red","blue"),type="b",ylab="Mean Squared Error",xlab="Number of Predictors Considered at each Split")
+legend("topright",legend=c("Out of Bag Error","Test Error"),pch=19, col=c("red","blue"))
+
+# DYGRAPH
+install.packages("dygraphs")
+library(dygraphs)
+
+data_BE=cbind()
+dygraph()
+
+
+
+
+```
+
+
+
+SVR sur Belgique
+```{r}
+
+# install.packages("e1071")
+# Load Library
+library(e1071)
+
+don<-base_BE_F_cr
+head(don)
+dim(don)
+
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+head(don)
+
+# train and test base BE
+# prendre base.nona pour éviter les valeurs manquantes
+set.seed(1)
+split=sample.split(don$Y, SplitRatio=2/3)
+train=subset(don,split==TRUE)
+test=subset(don,split==FALSE)
+
+
+#Regression with SVM
+svr_BE = svm(Y~.,don)
+mse_svr_BE= mean((Y-predict(svr_BE,don))^2)
+
+#Predict using SVM regression
+pred_svr = predict(svr_BE, don)
+
+#Overlay SVM Predictions on Scatter Plot
+plot(don$Date, don$Y)
+lines(don$Date, pred_svr, col="purple")
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

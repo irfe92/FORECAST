@@ -1,0 +1,1752 @@
+---
+title: "Modeles base totale 6 pays"
+author: "Nhu-Nguyen"
+date: "27 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+On cherche à prédire la consommation (Y) en fonction des autres variables
+
+
+## PACKAGES
+```{r}
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate) # pour les dates
+library(dummies) # création de variables dummies (pour bestglm)
+
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps) # regsubset
+
+
+# cross validation
+library(stats) # fonction glm
+
+
+# CLUSTERING
+library(stats) # fonction glm
+library(cluster)
+library(fastcluster)
+
+
+# MODELES
+library(caret)		
+library(ISLR)
+library(glmnet) # Poly, GAM
+library(boot) # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071) # SVR
+
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## ARBRE DE DECISION
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+base et variables pour Arbre décision NON CENTREE REDUITE, sans les autres variables météo
+```{r}
+
+# sur base totale avec tous les pays, non centrée réduite
+don<-base_F_6P
+# head(don)
+# str(don)
+
+# definition variables Y
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+Y=don$Y
+
+head(don)
+str(don)
+
+
+```
+
+
+ARBRE DECISION K_fold avec k=10 (par défaut)
+```{r}
+
+tree_6P_total<-rpart(Y~.,data=don)
+tree_6P_total
+# prp(tree_6P_total)               # A fast plot													
+fancyRpartPlot(tree_6P_total, main="arbre de décision 6 pays")		# A fancy plot from rattle
+
+# rpart choisit l'arbre par validation croisée k-fold. Par défaut k=10. On peut spécifier k avec xval=k
+# si xval=nrow(don), c'est un LOOCV leave one out
+# on peut spécifier le nombre minimum de données dans un noeud avec minsplit=
+
+
+```
+
+
+sur la BASE TOTALE avec les 6 pays BE, DE, ES, FR, NL, UK
+Les groupes sont d'abord répartis par pays:
+- BE séparé des autres pays: 17%
+- groupe UK ES FR DE=66%
+- puis NL isolé: 17%
+
+Ensuite, le deuxième critère de séparation est t3, température retardée de 3 jours (>=12)
+
+Ensuite, c'est le mois de l'année:
+- eté: Aug,Jul,Jun,May,Sep=7%
+- Hiver: jan, fev, mars, avril, nov, dec=2%
+
+Et le teff >5.1:
+
+
+NB: 
+- les pays BE, DE et NL que nous retiendrons pour la suite de l'étude appartiennent à 3 groupes différents
+- il 'y a pas de séparation par les jours.
+
+ARBRE DECISION plot
+```{r}
+plotcp(tree_6P_total) 
+# graphe qui permet de choisir le nombre de feuilles qui minimise l'erreur. 
+# on prend le cp correspondant pour construire l'arbre final
+
+```
+
+ARBRE DECISION FINAL avec k=10
+```{r}
+tree_6P_totalf<-rpart(Y~.,data=don, cp=0.011)
+fancyRpartPlot(tree_6P_totalf, main="arbre de décision 6 pays")
+
+```
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## BASE POUR LES AUTRES MODELES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+BASE CENTREE REDUITE, sans les autres variables météo
+```{r}
+
+# base totale centrée réduite, sans les variables météo
+don<-base_F_6P_cr
+head(don)
+dim(don)
+
+# creation des variables Y et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+
+# Creation de l'echantillon train individus et test 
+set.seed(1)
+dim<-nrow(don)
+split=2/3
+
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+test=model.matrix(Y~.,data=don[-train,])# base de test
+
+Y.train=Y[train]
+X.train=X[train]
+Y.test=Y[-train]
+X.test=X[-train]
+
+don.train=don[train,]
+don.test=don[-train,]
+
+donYX.train=donYX[train,]
+donYX.test=donYX[-train,]
+
+
+p=ncol(don) # nombre de variables explicatives
+p
+
+names(don)
+
+```
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## SELECTION DE VARIABLES REGSUBSETS
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET exhaustif à éviter
+```{r}
+
+# # SELECTION EXHAUSTIVE: A EVITER car P GRAND !! (ici 27 variables trop grand)
+# # Exhaustive search will be S L O W, must specify really.big=T
+# # On va obtenir 2^p modeles comprenant entre une et p variables
+# # par défaut, le nombre de variable est 8. Préciser le nombre de variables avec nvmax
+# 
+# best_full_tot=regsubsets(Y~.,data=don[train,],nvmax=p,method='exhaustive')
+# 
+# # choisir les meilleures variables: evaluer chacun des modeles sur le test set et calculer la MSE
+# MSE_full_tot=rep(NA,p)
+# for(i in 1:p){
+#   coefi=coef(best_full_tot,id=i)
+#   pred=test[,names(coefi)]%*%coefi
+#   MSE_full_tot[i]=mean((Y.test-pred)^2)
+# }
+# 
+# # plot les RMSE des modeles sur le training 
+# # On choisit le modele qui a la RMSE la plus petite sur le test set
+# plot(sqrt(MSE_full_tot),ylab='Root MSE des p modeles',pch=19,type='b')
+# which.min(MSE_full_tot) # ici, c'est le modèle à 12 variables (toutes les variables)
+# 
+# # Pour acceder aux coefficient du modele avec la RMSE la plus petite, on appelle la fonction coeff
+# # Pour acceder aux RSS des modeles, on lance la fonction summary
+# coef(best_full,12)
+# summary(best_full)$rss
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward
+```{r}
+
+# FORWARD SELECTION: NB pas assuré d'avoir le modèle optimal, mais possible si n<p
+
+best_FW_6P=regsubsets(Y~.,data=don.train,nvmax=p,method='forward')
+FW_6P_sum<-summary(best_FW_6P)
+
+# pour chacun des modeles sur le test set, calculer la MSE
+MSE_FW_6P=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_FW_6P,id=i)
+  pred=test[,names(coefi)]%*%coefi   # matrix modele et pas don.test
+  MSE_FW_6P[i]=mean((Y.test-pred)^2)
+}
+
+# on plot les RMSE des p modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(MSE_FW_6P),ylab='Root MSE des p modeles FW', main="Regsubset forward sur base 6 pays",pch=19,type='b')
+ 
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward résultats MSE
+```{r}
+which.min(MSE_FW_6P)
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward coef MSE
+```{r}
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables )
+coef(best_FW_6P,25)
+
+# variables sélectionnées par regsubset forward: Temp + day_length + teff + seuil + T00 + t1 + t3 + t4 + t5 + t6 + Date + Pays + month + year + day + weekend + wday + quarter
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward détails
+```{r}
+# FW_6P_sum
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward rss
+```{r}
+# # Pour acceder aux RSS des modèles, on lance la fonction summary
+# FW_6P_sum$rss
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET backward
+```{r}
+# selection variables BACKWARD: NB pas assuré d'avoir le modèle optimal,pas possible si n<p
+
+best_BW_6P=regsubsets(Y~.,data=don.train,nvmax=p,method='backward')
+sum_BW_6P<-summary(best_BW_6P)
+
+# pour chacun des modeles sur le test set, calculer la MSE
+MSE_BW_6P=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_BW_6P,id=i)
+  pred=test[,names(coefi)]%*%coefi  # matrix modele et pas don.test
+  MSE_BW_6P[i]=mean((Y.test-pred)^2)
+}
+
+# on plot les RMSE des p modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(MSE_BW_6P),ylab='Root MSE des p modeles',main="Regsubset backward sur base 6 pays",pch=19,type='b') 
+
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET backward résultats
+```{r}
+which.min(MSE_FW_6P) 
+# d'après le graphe, MSE quasi-stable à partir de 6
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET backward coef
+```{r}
+
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables)
+coef(best_BW_6P,25) 
+
+# variables sélectionnées par regsubset backward: Temp + day_length + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + Date + Pays + month + year + day + quarter
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET MSE
+```{r}
+# plot des RMSE pour les modèles FW et BW
+
+x=c(1:p)
+y1=sqrt(MSE_FW_6P)
+y2=sqrt(MSE_BW_6P)
+plot(x, y1, type = "l", ylim = range(c(y1, y2)), xlab = "nb de variables", ylab = "root mse", main="MSE 6 pays FW (blue) et BW (red)")
+lines(x, y1, col = "blue")
+lines(x, y2, col = "red")
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET RSS
+```{r}
+
+# Pour acceder aux RSS des modeles, on lance la fonction summary
+# summary(best_full)$rss 
+# summary(best_FW_6P)$rss
+# summary(best_BW_6P)$rss
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET plot BIC
+```{r}
+
+# choix des variables selon critères BIC, R² ajusté, Cp
+# graphe BIC autre: “Cp”, “adjr2”, “r2". classification des valeurs de BIC selon les modèles, en haut la plus petite valeur de BIC et en noir les variables inclusent dans le modèle
+# Le $R^2$ ajusté permet de déterminer à quel point le modèle ajuste vos données lorsque vous souhaitez l'ajuster en fonction du nombre de prédicteurs inclus. La valeur du $R^2$ ajusté intègre le nombre de prédicteurs dans le modèle elle donc plus adaptée pour nous aider à choisir le modèle.
+
+# graphe BIC
+plot(best_FW_6P, scale="bic", main=" BIC pour Regsubset FW 6 pays") 
+
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET FW plot R²
+```{r}
+# graphe R² ajusté
+plot(best_FW_6P, scale="adjr2", main=" R² Ajuste pour Regsubset FW 6 pays")
+
+ 
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET FW plot Cp
+```{r}
+
+
+# graphe Cp
+plot(best_FW_6P, scale="Cp", main=" Cp pour Regsubset FW 6 pays")
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward comparaison BIC R² et Cp graphes
+```{r}
+
+
+# Afin de nous aider à choisir le modèle à sélectionner, identifier l'emplacement du point maximum / minimum pour chaque critère : $RSS$, $R^2$ ajusté, $C_p$ et $BIC$. Dans chaque cas, afficher les variables sélectionnées.
+reg.summary<-summary(best_FW_6P)
+
+min.rss <- which.min(reg.summary$rss)
+max.adjr2 <- which.max(reg.summary$adjr2)
+min.cp <- which.min(reg.summary$cp)
+min.bic <- which.min(reg.summary$bic)
+# names(which(reg.summary$which[min.rss,]==TRUE))
+# names(which(reg.summary$which[max.adjr2,]==TRUE))
+# names(which(reg.summary$which[min.cp,]==TRUE))
+# names(which(reg.summary$which[min.bic,]==TRUE))
+
+# Sur une même fenêtre graphique représenter les courbes des différents critère. Ajouter sur chaque courbe, le maximum/minimum correspondant.
+
+par(mfrow =c(2,2))
+plot(reg.summary$rss,xlab="Number of Variables",ylab="RSS",type="l", main="regsubset FW 6 pays")
+points(min.rss,reg.summary$rss[min.rss],col ="red",cex =2, pch =20)
+plot(reg.summary$adjr2,xlab="Number of Variables ",ylab="Adjusted RSq",type="l")
+points(max.adjr2,reg.summary$adjr2[max.adjr2],col ="red",cex =2, pch =20)
+plot(reg.summary$cp,xlab="Number of Variables ",ylab="Cp",type="l")
+points(min.cp,reg.summary$cp[min.cp],col ="red",cex =2, pch =20)
+plot(reg.summary$bic,xlab="Number of Variables ",ylab="BIC",type="l")
+points(min.bic,reg.summary$bic[min.bic],col ="red",cex =2, pch =20)
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET FW comparaison BIC R² et Cp résultats
+```{r}
+
+# C'est avec le critère BIC qu'on a le plus petit modèle
+min.bic 
+min.rss 
+max.adjr2 
+min.cp 
+
+
+```
+
+SELECTION DE VARIABLES AVEC REGSUBSET FW Bic coef
+```{r}
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables)
+coef(best_FW_6P,17) 
+
+# variables sélectionnées par regsubset FW BIC: day_length + seuil + t1 + t2 + t3 + t4 + t5 + Date + Pays + month + year + day + quarter
+
+
+```
+
+
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET FW comparaison BIC R² et Cp graphes
+```{r}
+
+
+# Afin de nous aider à choisir le modèle à sélectionner, identifier l'emplacement du point maximum / minimum pour chaque critère : $RSS$, $R^2$ ajusté, $C_p$ et $BIC$. Dans chaque cas, afficher les variables sélectionnées.
+reg.summary<-summary(best_BW_6P)
+
+min.rss <- which.min(reg.summary$rss)
+max.adjr2 <- which.max(reg.summary$adjr2)
+min.cp <- which.min(reg.summary$cp)
+min.bic <- which.min(reg.summary$bic)
+
+# names(which(reg.summary$which[min.rss,]==TRUE))
+# names(which(reg.summary$which[max.adjr2,]==TRUE))
+# names(which(reg.summary$which[min.cp,]==TRUE))
+# names(which(reg.summary$which[min.bic,]==TRUE))
+
+# Sur une même fenêtre graphique représenter les courbes des différents critère. Ajouter sur chaque courbe, le maximum/minimum correspondant.
+
+par(mfrow =c(2,2))
+plot(reg.summary$rss,xlab="Number of Variables",ylab="RSS",type="l", main="regsubset BW 6 pays")
+points(min.rss,reg.summary$rss[min.rss],col ="red",cex =2, pch =20)
+plot(reg.summary$adjr2,xlab="Number of Variables ",ylab="Adjusted RSq",type="l")
+points(max.adjr2,reg.summary$adjr2[max.adjr2],col ="red",cex =2, pch =20)
+plot(reg.summary$cp,xlab="Number of Variables ",ylab="Cp",type="l")
+points(min.cp,reg.summary$cp[min.cp],col ="red",cex =2, pch =20)
+plot(reg.summary$bic,xlab="Number of Variables ",ylab="BIC",type="l")
+points(min.bic,reg.summary$bic[min.bic],col ="red",cex =2, pch =20)
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET BW comparaison BIC R² et Cp résultats
+```{r}
+
+# C'est avec le critère BIC qu'on a le plus petit modèle
+min.bic 
+min.rss 
+max.adjr2 
+min.cp 
+
+
+```
+
+SELECTION DE VARIABLES AVEC REGSUBSET BW Bic coef
+```{r}
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables)
+coef(best_BW_6P,18) 
+
+# variables sélectionnées par regsubset BW BIC: day_length + seuil + t1 + t2 + t3 + t4 + t5 + Pays + monthe + year + day + quarter
+
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES LASSO POUR SELECTION DE VARIABLES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES OLS SANS INTERACTION
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+OLS SANS INTERACTION avec toutes les variables résultats
+```{r}
+
+# OLS sans interaction sur base centrée réduite
+# modèle linéaire simple sur Y, avec toutes les variables
+# R² ajust 0.8642 F Stat 1002 Residual standard error: 0.3685
+
+RL_6P_tot<-lm(Y~.,data=don.train)
+RL_6P_tot_sum<-summary(RL_6P_tot)
+RL_6P_tot_sum
+
+
+```
+
+OLS SANS INTERACTION avec toutes les variables résidus
+```{r}
+# le graphe des résidus présente une structure avec 3 groupes distincts
+plot(RL_6P_tot) 
+
+```
+
+
+OLS SANS INTERACTION en ne gardant que les variables significatives
+```{r}
+
+# selection des variables significatives à la main, en en gardant que les pvalue significatives
+RL_6P<-lm(Y~ Temp + day_length + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + Pays + month + year, data=don.train)
+RL_6P_sum<-summary(RL_6P)
+RL_6P_sum
+
+
+```
+
+
+OLS SANS INTERACTION en ne gardant que les variables significatives: résidus
+```{r}
+# graphe résidus vs fitted encore très structurés avec 3 groupes
+plot(RL_6P) 
+
+
+```
+
+OLS SANS INTERACTION step
+```{r}
+# selection des variables significatives avec step
+RL_6P_step=step(RL_6P_tot, test="F", trace=FALSE)
+RL_6P_step
+
+```
+
+
+OLS SANS INTERACTION modèle issu de step et plot résidus
+```{r}
+
+RL_6P_step<-lm(formula = Y ~ Temp + day_length + teff + T00 + t1 + t2 + t3 + t4 + t5 + Pays + month + year + jc, data = don.train)
+
+# graphe des résidus avec une structure en trois groupes
+plot(RL_6P_step)
+
+
+```
+
+```{r}
+summary(RL_6P_step)
+
+```
+
+
+
+OLS SANS INTERACTION synthèse
+```{r}
+
+# comparaison avec modèle linéaire issu de step
+# R² ajusté équivalent
+# F stat RL_step moins élevé que RL mais supérieur au modèle total
+# residual std error step équivalents et globalement élevé pour les 3 modèles
+stargazer(RL_6P_tot,RL_6P,RL_6P_step,type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("tot", "signif","step"))
+
+
+```
+
+
+ANOVA
+```{r}
+
+# anova: the returned information for the F-test is the difference in the sum of squares between the models, the F-statistic for this difference, and the p-value for the F-statistic.
+anova(RL_6P_tot,RL_6P) # la différence semble significative entre RL_tot et RL
+anova(RL_6P,RL_6P_step) # la différence semble significative entre RL_step et RL
+
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES OLS AVEC INTERACTION
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+OLS AVEC INTERACTION SIMPLE résultats
+```{r}
+# OLS AVEC INTERACTION entre la température et les autres variables
+
+RLI_6P_tot<-lm(Y~(Date + cosinus + sinus + day_length + teff + seuil + T00 + Pays + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays)*Temp ,data=don.train) 
+RLI_6P_tot_sum<-summary(RLI_6P_tot)
+RLI_6P_tot_sum
+
+```
+
+
+OLS AVEC INTERACTION SIMPLE avec TEMP, en ne gardant que les variables signficatives
+```{r}
+# modèle OLS avec interaction avec seulement les variables significatives
+RLI_6P<-lm(Y~ cosinus + day_length + teff + seuil+ Pays + month + seuil:Temp + Pays:Temp + month:Temp + year:Temp, data=don.train) 
+RLI_6P_sum<-summary(RLI_6P)
+RLI_6P_sum
+
+```
+
+
+OLS AVEC INTERACTION SIMPLE vec TEMP, en ne gardant que les variables signficatives résidus
+```{r}
+# le graphe des résidus présente encore une structure mais qui semble moins forte
+plot(RLI_6P)
+
+
+```
+
+OLS AVEC INTERACTION SIMPLE modèle issu de step
+```{r}
+RLI_6P_step <- step(RLI_6P_tot, test="F", trace=FALSE)
+RLI_6P_step
+
+```
+
+
+
+OLS AVEC INTERACTION multiples en séparant les variables liées à la température des autres variables
+```{r}
+
+RLI_6P_multi_tot<-lm(Y~(Date + cosinus + sinus + day_length + Pays + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays)* (Temp + + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + t7),data=don.train) 
+RLI_6P_multi_tot_sum<-summary(RLI_6P_multi_tot)
+RLI_6P_multi_tot_sum
+
+
+```
+
+
+OLS AVEC INTERACTION multiples en séparant les variables liées à la température des autres variables
+```{r}
+# en ne gardant que les variables significatives
+RLI_6P_multi<-lm(Y ~ cosinus + day_length + Pays + month + day + t3 + t4 + t5 + Date:(t3 + t4 + t5) + cosinus*(seuil) + sinus:(t6 + t7) + day_length:(Temp + teff + seuil + t2 + t3 + t5) + Pays:(Temp + T00 + t2 + t3 + t4 + t5) + month:(Temp + seuil + T00),data=don.train) 
+
+RLI_6P_multi_sum<-summary(RLI_6P_multi)
+
+RLI_6P_multi_sum
+
+```
+
+OLS AVEC INTERACTION multiples issu de step très très long
+```{r}
+# RLI_6P_multi_step <- step(RLI_6P_multi_tot, test="F", trace=FALSE)
+# RLI_6P_multi_step
+
+```
+
+
+
+OLS comparaison régression linéaire avec interaction MSE
+```{r}
+# modele lineaire total
+MSE_RL_6P_tot= mean((Y.test-predict(RL_6P_tot,don.test))^2)
+
+# modele lineaire en ne gardant que les variables significatives à la main
+MSE_RL_6P= mean((Y.test-predict(RL_6P,don.test))^2)
+
+# modele lineaire en ne gardant que les variables significatives par step
+MSE_RL_6P_step= mean((Y.test-predict(RL_6P_step,don.test))^2)
+
+# modele lineaire avec interaction en ne gardant que les variables significatives à la main
+MSE_RLI_6P_tot= mean((Y.test-predict(RLI_6P_tot,don.test))^2)
+
+# modele lineaire avec interaction en ne gardant que les variables significatives à la main
+MSE_RLI_6P= mean((Y.test-predict(RLI_6P,don.test))^2)
+
+# modele lineaire avec interaction en ne gardant que les variables significatives par step
+MSE_RLI_6P_step= mean((Y.test-predict(RLI_6P_step,don.test))^2)
+
+# modele lineaire avec interaction multiple en ne gardant que les variables significatives à la main
+MSE_RLI_6P_multi_tot= mean((Y.test-predict(RLI_6P_multi_tot,don.test))^2)
+
+# modele lineaire avec interaction multiple en ne gardant que les variables significatives à la main
+MSE_RLI_6P_multi= mean((Y.test-predict(RLI_6P_multi,don.test))^2)
+
+
+# comparaison des MSE entre les modèles RL, RLI, Poly, Spline, GAM, SVR
+MSE_6P=c(MSE_RL_6P_tot, MSE_RL_6P, MSE_RL_6P_step, MSE_RLI_6P_tot, MSE_RLI_6P, MSE_RLI_6P_step, MSE_RLI_6P_multi_tot, MSE_RLI_6P_multi)
+
+# graphe des MSE
+graph<-barplot(MSE_6P, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
+axis(1, labels=c("RL_tot","RL","RL_step", "RLI_tot","RLI","RLI_step","multi_tot","multi"), at = graph)
+
+# ainsi, les interactions multiples permettent d'améliorer nettement la MSE
+
+```
+
+
+```{r}
+which.min(MSE_6P) # c'est RLI_multi_tot
+
+```
+
+```{r}
+# Comparaison des modèles avec et sans step
+
+# comparaison des MSE entre les modèles RL
+MSE_6P_RL=c(MSE_RL_6P_tot, MSE_RL_6P, MSE_RL_6P_step)
+which.min(MSE_6P_RL) #modèle step le plus petit
+
+
+# comparaison des MSE entre les modèles RLI
+MSE_6P_RLI=c(MSE_RLI_6P_tot, MSE_RLI_6P, MSE_RLI_6P_step)
+which.min(MSE_6P_RLI) #modèle tot le plus petit
+
+
+# comparaison des MSE entre les modèles RLI multi
+MSE_6P_RLI_multi=c(MSE_RLI_6P_multi_tot, MSE_RLI_6P_multi)
+which.min(MSE_6P_RLI_multi) #modèle tot le plus petit
+
+```
+
+
+
+OLS comparaison des stats de régression linéaire sans et avec interaction
+```{r}
+# comparaison modèles linéaire sans et avec interaction: les stats sont meilleures pour le modèle avec interaction multiple 
+# R² ajusté plus élevé pour RLI multiple
+# residual std error nettement plus faible pour RLI multiple
+# F-stat plus élevé pour pour RLI (simple et multiple) que pour les modèles sans interaction
+stargazer(RL_6P_step, RLI_6P_tot, RLI_6P_multi_tot, type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL","RLI", "multi"))
+
+# ainsi, pour la base avec 6 pays, la RL avec interaction semble améliorer les stats
+
+```
+
+
+
+OLS AVEC INTERACTION entre Temp (poly degré 2) et les autres variables
+```{r}
+
+RLI_6P_P2_tot<-lm(Y~(Date + cosinus + sinus + day_length + teff + seuil + T00 + Pays + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays)*I(poly(Temp,2)),data=don.train) 
+RLI_6P_P2_tot_sum<-summary(RLI_6P_P2_tot)
+RLI_6P_P2_tot_sum
+
+
+
+```
+
+OLS AVEC INTERACTION entre Temp (poly degré 2) variables significatives à la main
+```{r}
+# en ne gardant que les variables significatives 
+RLI_6P_P2<-lm(Y~ cosinus + day_length + teff + seuil + Pays + month + lagholidays + leadholidays + (seuil + T00 +  Pays + month):I(poly(Temp,2)), data=don.train) 
+RLI_6P_P2_sum<-summary(RLI_6P_P2)
+RLI_6P_P2_sum
+
+
+```
+
+OLS AVEC INTERACTION entre Temp (poly degré 2) variables significatives issues de step
+```{r}
+RLI_6P_P2_step <-step (RLI_6P_P2_tot, test="F", trace = FALSE)
+RLI_6P_P2_step
+
+RLI_6P_P2_step = lm(formula = Y ~ Date + cosinus + sinus + day_length + teff + T00 + Pays + month + year + holidays + jc + lagholidays +     leadholidays + I(poly(Temp, 2)) + Date:I(poly(Temp, 2)) + sinus:I(poly(Temp, 2)) + T00:I(poly(Temp, 2)) + Pays:I(poly(Temp, 2)) + month:I(poly(Temp, 2)) + jc:I(poly(Temp, 2)), data = don.train)
+
+
+```
+
+
+OLS AVEC INTERACTION entre Temp (poly degré 2) et les autres variables MSE
+```{r}
+MSE_RLI_6P_P2_tot= mean((Y.test-predict(RLI_6P_P2_tot,don.test))^2)
+MSE_RLI_6P_P2= mean((Y.test-predict(RLI_6P_P2,don.test))^2)
+MSE_RLI_6P_P2_step= mean((Y.test-predict(RLI_6P_P2_step,don.test))^2)
+MSE_6P_RLI_P2=c(MSE_RLI_6P_P2_tot,MSE_RLI_6P_P2, MSE_RLI_6P_P2_step)
+
+which.min(MSE_6P_RLI_P2) # c'est le modèle step
+
+```
+
+
+
+comparaison modèles linéaire sans et avec interaction simple, multiple, poly2
+```{r}
+# R² ajusté plus élevé pour RLI multi 
+# Residual std error plus faible pour RLI multi
+# F stat plus élevé pour RLI poly
+stargazer(RL_6P_step, RLI_6P_tot, RLI_6P_multi_tot, RLI_6P_P2_step ,type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL","RLI", "RLI multi", "RLI poly"))
+
+
+```
+
+Graphes modèles RL, RLI, RLI multi et RLI poly, en ne gardant que les modèles ayant la plus petite MSE
+```{r}
+
+pred_RL_6P=predict(RL_6P_step, newdata=don.test, se=T) # modèle step
+pred_RLI_6P=predict(RLI_6P_tot, newdata=don.test, se=T) # modèle tot
+pred_RLI_6P_multi=predict(RLI_6P_multi_tot, newdata=don.test, se=T) # modèle tot
+pred_RLI_6P_P2=predict(RLI_6P_P2_step, newdata=don.test, se=T) # modèle step
+
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèles RL et RLI 6 PAYS" )
+lines(don.test$Date,pred_RL_6P$fit, col="blue")
+lines(don.test$Date,pred_RLI_6P$fit, col="red")
+lines(don.test$Date,pred_RLI_6P_multi$fit, col="yellow")
+lines(don.test$Date,pred_RLI_6P_P2$fit, col="green")
+
+
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèle RL sur 6 PAYS" )  # les valeurs extrèmes sont sous estimées
+lines(don.test$Date,pred_RL_6P$fit, col="blue")
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèle RLI simple sur 6 PAYS" ) # les valeurs extrèmes sont mieux prédites
+lines(don.test$Date,pred_RLI_6P$fit, col="red")
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèle RLI multiple sur 6 PAYS" )   # les valeurs extrèmes sont mieux prédites
+lines(don.test$Date,pred_RLI_6P_multi$fit, col="yellow")
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèles RLI poly2 sur 6 PAYS" )  # les valeurs extrèmes sont mieux surestimées
+lines(don.test$Date,pred_RLI_6P_P2$fit, col="green")
+
+
+# d'après les graphes des valeurs prédites, les modèles RL et RLI poly sous/surestiment les valeurs extrêmes. Les prédictions des valeurs extr^mes semblent meileures pour RLI et RLI multi
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES POLYNOMIAL
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+POLYNOME base et variables sur la base centrée réduite
+
+Modèles avec cible=Conso en fonction d'un polynome sur Temp
+
+POLYNOME détermination du degré par cross validation hold out train / test
+
+
+```{r}
+
+# # CROSS VALIDATION HOLD OUT TRAIN/TEST
+# set.seed(1)
+# dim<-nrow(donYX)
+# train<-sample(dim,2*dim/3)
+# donYX.train=donYX[train,]
+# donYX.test=donYX[-train,]
+# Y.test=Y[-train]
+
+d=20 # degré max de polynome à tester
+err_poly_6P_HO=rep(NA,d)
+for(i in 1:d) {
+  model <- lm(formula=Y~poly(X,i, raw=T), data=donYX.train)
+  err_poly_6P_HO[i] <- mean((Y.test-predict(model,donYX.test))^2)
+  }
+
+# plot les RMSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(err_poly_6P_HO),ylab="MSE", main='Root MSE 6 pays selon le degré de polynome',pch=19,type='b')
+
+
+```
+
+POLYNOME détermination du degré par cross validation hold out resultats
+```{r}
+which.min(err_poly_6P_HO) 
+
+```
+
+
+POLYNOME détermination du degré par cross validation hold out modèle retenu et résidus
+```{r}
+
+#modèle retenu par hold out
+poly_6P_HO<- lm(formula=Y~poly(X,10, raw=T), data=donYX.train)
+poly_6P_HO_sum<- summary(poly_6P_HO)
+MSE_poly_6P_HO= mean((Y.test-predict(poly_6P_HO,donYX.test))^2)
+
+# le graphe des résidus vs fitted a toujours une structure en 3 groupes
+plot(poly_6P_HO)
+
+```
+
+
+POLYNOME détermination du degré par cross validation K-fold
+```{r}
+
+
+# CROSS VALIDATION K.fold
+library(boot)
+k=10
+d=15
+set.seed(1)
+err_poly_6P_KF=as.vector(rep(0,d))
+for (i in 1:d){
+glm.fit<-glm(Y~poly(X,i),data = donYX.train)
+err_poly_6P_KF[i]<-cv.glm(donYX.test,glm.fit,K=10)$delta[1]
+}
+
+plot(err_poly_6P_KF, pch=19,type='b')
+
+```
+
+POLYNOME détermination du degré par cross validation K-fold résulats
+```{r}
+which.min(err_poly_6P_KF) 
+
+```
+
+
+
+POLYNOME détermination du degré par cross validation K-fold modèle retenu et résidus
+```{r}
+
+#modèle retenu par K_fold
+poly_6P_KF<- lm(formula=Y~poly(X,1, raw=T), data=donYX.train)
+MSE_poly_6P_KF= mean((Y.test-predict(poly_6P_KF,donYX.test))^2)
+
+# le graphe des résidus vs fitted a toujours une structure en 3 groupes
+plot(poly_6P_KF)
+
+```
+
+
+POLYNOME détermination du degré par cross validation LOOCV à éviter, trop long
+```{r}
+# CROSS VALIDATION LOOCV leave one out !!!! TRES LONG
+# library(boot)
+# d=10 # degré de polynome 
+# cv.error=rep(0,d)
+# for (i in 1:d) { 
+#   glm.fit=glm(Y~poly(X,i),data = donYX) 
+#   cv.error[i]=cv.glm(donYX,glm.fit)$delta[1] # par défaut, K= nombre d'observations donc LOOCV
+# }
+# plot(cv.error, type="l") 
+
+```
+
+
+POLYNOME comparaison RL et poly
+```{r}
+
+# COMPARAISON DES MODELES
+#modèle retenu par hold out
+poly_6P_HO<- lm(formula=Y~poly(X,10, raw=T), data=donYX.train)
+poly_6P_HO_sum<- summary(poly_6P_HO)
+MSE_poly_6P_HO= mean((Y.test-predict(poly_6P_HO,donYX.test))^2)
+
+#modèle retenu par K_fold
+poly_6P_KF<- lm(formula=Y~poly(X,1, raw=T), data=donYX.train)
+MSE_poly_6P_KF= mean((Y.test-predict(poly_6P_KF,donYX.test))^2)
+
+
+```
+
+```{r}
+# en comparant les MSE, 
+diff_POLY_6P=MSE_poly_6P_HO - MSE_poly_6P_KF
+diff_POLY_6P # MSE_poly_6P_HO < MSE_poly_6P_KF
+# 
+# nous retiendrons poly10 sur le critère du MSE
+POLY_6P<- lm(formula=Y~poly(X,10, raw=T), data=donYX.train)
+POLY_6P_sum<- summary(POLY_6P)
+MSE_POLY_6P_tot= mean((Y.test-predict(POLY_6P,donYX.test))^2)
+
+
+```
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES SPLINES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SPLINE Conso en fonction de la température
+
+SPLINES sur base centrée réduite et variables
+
+```{r}
+
+# don<-base_F_6P_cr
+# don <- rename.variable(don, "Conso", "Y")
+# 
+# #creation des variables Y et X
+# Y=don$Y 
+# X=don$Temp
+# donYX=data.frame(cbind(Y,X))
+# str(donYX)
+# nrow(donYX)
+# length(X)
+# length(Y)
+# 
+# # Creation de l'echantillon train 2/3 individus et test 1/3
+# set.seed(1)
+# dim<-nrow(don)
+# train=sample(dim,2*dim/3,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+# test=model.matrix(Y~.,data=don[-train,])# base de test
+# Y.train=Y[train]
+# X.train=X[train]
+# Y.test=Y[-train]
+# X.test=X[-train]
+# don.train=don[train,]
+# don.test=don[-train,]
+# donYX.train=donYX[train,]
+# donYX.test=donYX[-train,]
+
+```
+
+
+SPLINES choix du degré de liberté/noeuds par CV hold out pour natural splines
+```{r}
+
+# CHOIX DU DEGRE DE LIBERTE df (et donc du nombre de noeuds) par cross validation HOLD OUT TRAIN/TEST 
+# l'option df produit des splines avec des noeuds placés sur les quantiles
+# on n'obtient pas les mêmes noeuds en bs et ns, pour un même degré de liberté
+# attr() pour avoir les noeuds issus de df
+
+# # noeuds avec basic splines
+# attr(bs(X,df=3),"knots") # pas de noeud
+# attr(bs(X,df=4),"knots") # un seul noeud à 50% = 2 intervalles + 2 frontières min et max
+# attr(bs(X,df=5),"knots") # 2 noeuds à 1/3 et 2/3 = 3 intervalles + 2 frontières min et max
+# attr(bs(X,df=6),"knots") # 3 noeuds à 25%, 50% et 75% = 4 intervalles + 2 frontières min et max
+# 
+# # noeuds avec natural splines
+# attr(ns(X,df=1),"knots") #  pas de noeud
+# attr(ns(X,df=2),"knots") #  un seul noeud à 50%
+# attr(ns(X,df=3),"knots") #  2 noeuds aux quantiles 33% (7.4) et 66% (13.7)
+# attr(ns(X,df=4),"knots") #  3 noeuds à 25% (5.8), 50% (10.2),75% (15.5)
+# attr(ns(X,df=5),"knots") #  4 noeuds à 20% (4.9), 40% (8.5),60% (12.2), 80% (16.5)
+
+
+# pour natural spline, recherche degré df qui minimise le MSE
+DF=15 # df max à tester
+MSE_SP_6P_ns=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(X,df=i), data=donYX.train)
+  MSE_SP_6P_ns[i] <- mean((Y.test-predict(model,donYX.test))^2)
+  }
+
+# plot les RMSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(MSE_SP_6P_ns),ylab="MSE", main='Root MSE 6 pays selon le degré de liberté du spline',pch=19,type='b')
+
+
+```
+
+
+SPLINES choix du degré de liberté/noeuds résultats
+```{r}
+
+which.min(MSE_SP_6P_ns)
+# c'est le modèle avec un degré de liberté 8 qui a la plus petite MSE
+
+```
+
+SPLINES choix du degré de liberté: nombre de noeuds
+```{r}
+attr(ns(X,df=8),"knots")
+
+```
+
+
+SPLINES choix du degré de liberté/noeuds par CV hold out pour basic splines
+```{r}
+
+
+# pour basic spline, recherche degré df qui minimise le MSE 
+
+DF=15 # df max à tester
+MSE_SP_6P_bs=rep(0,DF)
+for(i in 4:DF) {
+  model <- lm(Y~bs(X,df=i), data=donYX.train)
+  MSE_SP_6P_bs[i] <- mean((Y.test-predict(model,donYX.test))^2)
+  }
+
+# plot les RMSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(MSE_SP_6P_bs),ylab="MSE", main='Root MSE selon le degré de liberté du spline',pch=19,type='b')
+
+```
+
+SPLINES choix du degré de liberté/noeuds par CV hold out pour basic splines résultat
+```{r}
+which.min(MSE_SP_6P_bs)+3 # le test démarre à df=4
+
+```
+
+SPLINES choix du degré de liberté/noeuds par CV hold out pour basic splines
+```{r}
+attr(ns(X,df=4),"knots")
+ 
+
+```
+
+
+SPLINES choix entre natural splines et basic splines par CV hold out 
+```{r}
+
+# CHOIX ENTRE BASIC SPLINES ET NATURAL SPLINES, celui qui minimise le MSE
+
+#natural splines ns
+# ns() ne marche que si les variables sont numériques. Les variables qualitatives seront transformées en dummy variables
+attr(ns(X,df=8),"knots")  # 7 noeuds à12.5% 25% 37.5% 50% 62.5% 75% 87.5%
+fit_ns_6P_tot=lm(Y~ns(X,df=3), data=donYX.train)
+plot(fit_ns_6P_tot)
+MSE_SP_6P_ns <- mean((Y.test-predict(fit_ns_6P_tot,donYX.test))^2)
+
+#basic splines bs: on prend le df qui donne les mêmes noeuds que natural spline 
+attr(bs(X,df=4),"knots") # 3 noeuds
+fit_bs_6P_tot=lm(Y~bs(X,df=5), data=donYX.train)
+plot(fit_bs_6P_tot)
+MSE_SP_6P_bs <- mean((Y.test-predict(fit_bs_6P_tot,donYX.test))^2)
+
+
+diff_6P_bs_ns=MSE_SP_6P_bs-MSE_SP_6P_ns
+diff_6P_bs_ns # MSE_SP_6P_bs < MSE_bs_6P_ns 
+# => avec les mse, on choisirait bs
+
+
+```
+
+
+SPLINES choix entre natural splines et basic splines par CV hold out comparaison
+```{r}
+
+
+#comparaison des stats des résultats entre basic et natural splines
+stargazer(fit_bs_6P_tot, fit_ns_6P_tot, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("bs", "ns"))
+# => avec les stat des modèles, choix de ns car F-stat plus grand qu bs. Le R² ajusté et residual std error sont égaux entre ns et bs
+
+# les stats du modèles de spline ne sont pas bonnes: R² très faible, residual error très élevé
+# il faudrait essayer Régression multivariée par spline adaptative. Mais package Polymars n'est plus accessible
+
+
+```
+
+
+SPLINES choix entre natural splines et basic splines par CV hold out résultats et résidus
+```{r}
+
+# modèle spline sur toute la base BE
+# en minimisant MSE, on retient spline bs avec df=1 trouvé par cross validation hold out
+SP_6P=lm(Y~bs(X,df=4), data=donYX.train) #  3 noeuds 
+pred_SP_6P=predict(SP_6P, newdata=donYX.test, se=T)
+MSE_SP_6P= mean((Y.test-predict(SP_6P,donYX.test))^2)
+plot(SP_6P) # graphe des résidus vs fitted a toujours une structure en 3 groupes
+
+
+```
+
+
+SPLINES graphes et smooting splines
+```{r}
+
+# graphes de conso vs température
+plot(X.test,Y.test, xlab = "Temp", ylab="Conso")
+points (X.test,pred_SP_6P$fit, col="blue") 
+
+# graphe de conso vs date
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="Spline 6 pays, fit (bleu)" )
+lines(don.test$Date,pred_SP_6P$fit, col="blue") 
+
+
+# SMOOTHING SPLINE
+SM_6P=smooth.spline(Y.test,X.test,df=3) # on spécifie df=6 et le lambda est déterminé de sorte à obtenir df=6
+SM_6P_cv=smooth.spline(Y.test,X.test,cv=TRUE) # lambda est choisi par cross validation
+
+plot(SM_6P, main="smooth spline") 
+plot(SM_6P_cv, main="cv") 
+
+# #comparaison des résultats entre Spline df3, smoothing spline df3 et smoothing spline avec lambda par cv
+# stargazer(SP_6P, SM_6P, SM_6P_cv, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("SP", "SM", "SMcv"), model.names = TRUE)
+```
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES GAM
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+GAM base centrée réduite et variables
+```{r}
+
+# library(splines) 
+# library(questionr)
+# 
+# don<-base_F_6P_cr
+# don <- rename.variable(don, "Conso", "Y")
+# 
+# #creation des variables Y et X
+# Y=don$Y 
+# X=don$Temp
+# donYX=data.frame(cbind(Y,X))
+# str(donYX)
+# nrow(donYX)
+# length(X)
+# length(Y)
+# 
+# # data set train et test
+# set.seed(1)
+# d<-nrow(donYX)
+# train<-sample(d,2*d/3)
+# # test=donYX[-train,]
+# 
+# # Creation de l'echantillon train 2/3 individus et test 1/3
+# set.seed(1)
+# dim<-nrow(don)
+# train=sample(dim,2*dim/3,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+# test=model.matrix(Y~.,data=don[-train,])# base de test
+# Y.train=Y[train]
+# X.train=X[train]
+# Y.test=Y[-train]
+# X.test=X[-train]
+# don.train=don[train,]
+# don.test=don[-train,]
+# donYX.train=donYX[train,]
+# donYX.test=donYX[-train,]
+
+
+```
+
+GAM détermination du polynome par CV K-fold avec toutes les variables : 
+
+message erreur prediction from a rank-deficient fit may be misleading
+
+```{r}
+# library(boot)
+# en enlevant les variables liées à la température: + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + t7
+
+d=15 # degré de poly à tester
+GAM_cv.error_6P=rep(0,d)
+for (i in 1:d) { 
+  glm.fit= glm(Y~ poly(Temp,i) + Date + cosinus + sinus + day_length + Pays + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + t7, data = don) 
+  GAM_cv.error_6P[i]=cv.glm(don, glm.fit, K=10 )$delta[1] # par défaut, K= nombre d'observations donc LOOCV
+}
+
+plot(GAM_cv.error_6P, main="GAM 6 pays cv.error selon degré polynome",pch=19,type='b') 
+
+
+```
+
+GAM détermination du polynome par CV K-fold résultats
+```{r}
+which.min(GAM_cv.error_6P) 
+
+```
+
+GAM détermination du polynome par CV K-fold modèle retenu 
+```{r}
+
+# modèle GAM avec polynôme sur la température 
+
+GAM_6P_tot=glm(Y~ poly(Temp,7) + Date + cosinus + sinus + day_length + Pays + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + t7, data = don.train) 
+
+pred_GAM_6P_tot=predict(GAM_6P_tot, newdata=don.test, se=T)
+
+summary(GAM_6P_tot)
+
+
+```
+
+GAM modèle retenu en ne gardant que les variables significatives
+```{r}
+
+GAM_6P=glm(Y~ poly(Temp,7) + Pays + T00 + t1 +t2 + t3 + t5, data = don.train) 
+summary(GAM_6P)
+
+
+```
+
+GAM modèle step
+```{r}
+GAM_6P_step <- step(GAM_6P_tot, test="F", trace = FALSE)
+GAM_6P_step
+
+GAM_6P_step = glm(formula = Y ~ poly(Temp, 7) + cosinus + sinus + day_length + Pays + year + jc + teff + T00 + t1 + t2 + t3 + t4 + t5 + t6, data = don)
+
+
+```
+
+GAM comparaison MSE
+```{r}
+MSE_GAM_6P_tot= mean((Y.test-predict(GAM_6P_tot,don.test))^2)
+MSE_GAM_6P= mean((Y.test-predict(GAM_6P,don.test))^2)
+MSE_GAM_6P_step= mean((Y.test-predict(GAM_6P_step,don.test))^2)
+
+MSE_GAM_6P_tot=c(MSE_GAM_6P_tot, MSE_GAM_6P, MSE_GAM_6P_step)
+which.min(MSE_GAM_6P_tot) # c'est le modèle step qui est retenu
+
+```
+
+
+
+GAM résidus
+```{r}
+# le graphe des résidus présente toujours une structure en 3 groupes
+plot(GAM_6P) 
+
+```
+
+
+
+
+
+
+GAM valeurs prédites
+```{r}
+pred_GAM_6P=predict(GAM_6P, newdata=don.test, se=T)
+# graphe des valeurs prédites par GAM sur la Belgique
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="GAM" )
+lines(don.test$Date,pred_GAM_6P$fit, col="yellow")
+
+
+```
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES RANDOM FOREST
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+RANDOM FOREST base et variables
+```{r}
+
+# RANDOM FOREST BELGIQUE
+# on peut régler deux éléments : 
+# ntree: le nombre d’arbres construits par l’algorithme 
+# mtry: le nombre de variables testées à chaque division. 
+# la valeur par défaut de mtry correspond à la racine carrée du nombre de variables
+
+library(caTools)
+library(randomForest)
+library(ggplot2)
+library(questionr)
+
+don<-base_F_6P_cr
+head(don)
+dim(don)
+sqrt(ncol(don)) # = valeur mtry par défaut soit 5 
+
+# création de variable Y
+don <- rename.variable(don, "Conso", "Y")
+head(don)
+
+
+# train & test datasets
+#éviter les valeurs manquantes
+set.seed(1)
+dim<-nrow(don)
+index<-sample(dim,2*dim/3)
+don.train=don[index,]
+don.test=don[-index,]
+Y.test=Y[-index]
+
+```
+
+RANDOM FOREST modelisation
+```{r}
+
+# modelisation sur train, par défaut ntree=500
+RF_6P<-randomForest(Y~., data=don.train, ntree = 500, mtry = 5)
+# summary(RF_6P_tot_train)
+print(RF_6P)
+# names(RF_6P_tot) 
+# "call"            "type"            "predicted"       "mse"             "rsq"            
+# "oob.times"       "importance"      "importanceSD"    "localImportance" "proximity"      
+# "ntree"           "mtry"            "forest"          "coefs"           "y"              
+# "test"            "inbag"           "terms" 
+```
+
+RANDOM FOREST MSE plot
+```{r}
+
+# plot MSE selon le nombre d'arbres: la valeur de MSE baisse rapidement et stagne à partir de 100 environ
+plot(RF_6P$mse, xlab = "nombre d'arbres", ylab = "MSE")
+
+```
+
+RANDOM FOREST choix de mtry par CV hold out
+```{r}
+
+# CHOIX DE MTRY PAR CV HOLD OUT
+# boucle de test très long
+m=15 # mtry max à tester. 
+MSE_RF_6P=rep(0,m)
+for(i in 1:m) {
+  model <- randomForest(Y~., data=don.train, mtry = i)
+  MSE_RF_6P[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+# graphe de MSE
+plot(MSE_RF_6P, xlab="mtry", ylab="MSE", main="MSE selon mtry", type="b")
+
+```
+
+RANDOM FOREST choix de mtry par CV résultats
+```{r}
+
+which.min(MSE_RF_6P) 
+
+
+
+```
+
+
+RANDOM FOREST choix de ntree par CV: LONG et résultat pas stables 
+```{r}
+# CHOIX DE NTREE PAR CV HOLD OUT
+Ntree=seq(100,500,by=100)  # ntree à tester
+d=length(Ntree)
+nb=1 # nombre de tests de cross validation
+MSE_RF_6P_tree=rep(NA,d*nb)
+res_ntree=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+
+  for(i in 1:d) {
+    model <- randomForest(Y~., data=don.train, mtry = 10, ntree=Ntree[i])
+    MSE_RF_6P_tree[i+j-1] <- mean((Y.test-predict(model,don.test))^2)
+    names(MSE_RF_6P_tree)[i] <- paste(as.character(Ntree[i]),"tree",sep="_")
+  }
+
+  res_ntree[j]=Ntree[which.min(MSE_RF_6P_tree)]
+
+}
+
+res_ntree
+# plot(MSE_RF_6P.tree, xlab="ntree", ylab="MSE", main="MSE selon ntree")
+
+
+```
+
+RANDOM FOREST choix de ntree par CV résultats
+```{r}
+# graphe des MSE du choix de ntree
+Ntree[which.min(MSE_RF_6P_tree)]
+# plot(MSE_RF_6P.tree, xlab="ntree", ylab="MSE", main="MSE selon ntree")
+
+
+barplot(MSE_RF_6P_tree, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_6P_tree) , names = names(MSE_RF_6P_tree) ,main="MSE selon ntree",las=0) 
+
+
+
+```
+
+
+RANDOM FOREST choix de ntree par CV et parallelisation TRES LONG AUSSI
+```{r}
+# parallisation 
+indice=1:1 
+grappe <- makeCluster(ncores - 1)
+registerDoParallel(grappe)
+clusterExport(cl = grappe, varlist = c("don.train", "don.test", "Y.test"))
+
+res <- foreach(indice, .combine=cbind, .packages='randomForest') %dopar% {
+Ntree=seq(100,500,by=100)  # ntree à tester
+d=length(Ntree)
+nb=1 # nombre de tests de cross validation
+MSE_RF_6P.tree=rep(NA,d*nb)
+res_ntree=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+for (j in 1:nb) {
+  for(i in 1:d) {
+    model <- randomForest(Y~., data=don.train, mtry = 10, ntree=Ntree[i])
+    MSE_RF_6P.tree[i+j-1] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+  res_ntree[j]=Ntree[which.min(MSE_RF_6P.tree)]
+
+}
+
+res_ntree
+  
+}
+
+stopCluster(grappe)
+
+res_ntree
+
+
+```
+
+
+
+RANDOM FOREST choix de nodesize par CV TRES LONG AUSSI
+```{r}
+# CHOIX DE NODESIZE PAR CV HOLD OUT
+n_list=seq(from=1,to=10,by=1)  # nodesize à tester
+d=length(n_list)
+nb=1 # nombre de tests de cross validation
+MSE_RF_6P_node=rep(NA,d*nb)
+res_node=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+
+  for(i in 1:d) {
+    model <- randomForest(Y~., data=don.train, mtry = 5, ntree=200, nodesize = n_list[i])
+    MSE_RF_6P_node[i+j-1] <- mean((Y.test-predict(model,don.test))^2)
+    names(MSE_RF_6P_node)[i] <- paste(as.character(n_list[i]),"node",sep="_")
+  }
+
+  res_node[j]=n_list[which.min(MSE_RF_6P_node)]
+
+}
+
+res_node
+
+
+```
+
+RANDOM FOREST choix de nodesize résultats
+```{r}
+
+# graphe des MSE du choix de nodesize
+n_list[which.min(MSE_RF_6P_node)]
+# plot(MSE_RF_6P.tree, xlab="ntree", ylab="MSE", main="MSE selon ntree")
+
+
+barplot(MSE_RF_6P_tree, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_6P_tree) , names = names(MSE_RF_6P_tree) ,main="MSE selon nodesize",las=0) 
+
+
+```
+
+RANDOM FOREST modèle final
+```{r}
+RF_6P_fin<-randomForest(Y~., mtry = 10, ntree=200 ,data=don.train)
+
+```
+
+
+RANDOM FOREST plot variables par importance
+```{r}
+
+varImpPlot(RF_6P_fin)
+
+```
+
+
+RANDOM FOREST liste variable par importance
+```{r}
+
+RF_6P_fin$importance
+
+```
+
+
+```{r}
+RF_6P_fin$importance[order(RF_6P_fin$importance[, 1], decreasing = TRUE), ]
+
+# les variables les plus importantes sont Pays, seuil, day_length
+
+```
+
+PLOT Y en fonction de Pays
+```{r}
+plot(Y~Pays, data=don)
+
+# à vérifier pourquoi les données DE, ES, FR et UK sont écrasées
+
+```
+
+PLOT Y en fonction de seuil
+```{r}
+plot(Y~ seuil, data=don)
+
+```
+
+
+```{r}
+plot(Y~ day_length, data=don)
+
+```
+
+
+
+RANDOM FOREST prediction
+```{r}
+
+# prediction
+RF_6P_fin_pred<-predict(RF_6P_fin,don.test)
+RF_6P_fin_pred_sum<-summary(RF_6P_fin_pred)
+# RF_6P_tot_pred_sum
+
+MSE_RF_6P_fin= mean((Y.test-predict(RF_6P_fin,don.test))^2)
+
+# plot des valeurs prédites vs valeurs réelles
+ggplot() +
+  geom_point(aes(x = don.test$Date, y = Y.test),
+             colour = 'red') +
+  geom_line(aes(x = don.test$Date, y = RF_6P_fin_pred),
+            colour = 'blue') +
+  ggtitle('Random Forest Regression, en bleu prédiction') +
+  xlab('date') +
+  ylab('conso')
+
+```
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## MODELES SVR
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+SVR modelisation train/test
+```{r}
+
+# train and test
+# éviter les valeurs manquantes
+# set.seed(1)
+# split=sample.split(don$Y, SplitRatio=2/3)
+# don.train=subset(don,split==TRUE)
+# don.test=subset(don,split==FALSE)
+# Y.test=subset(don,split==FALSE)
+
+#Regression with SVM
+SVR_6P = svm(Y~.,don.train)
+MSE_SVR_6P= mean((Y.test-predict(SVR_6P,don.test))^2)
+
+#Predict using SVM regression
+pred_SVR_6P = predict(SVR_6P, don.test)
+
+#Overlay SVM Predictions on Scatter Plot
+plot(don.test$Date, Y.test)
+lines(don.test$Date, pred_SVR_6P, col="purple")
+
+
+
+```
+
+
+SVR names
+```{r}
+names(SVR_6P_tot)
+
+
+```
+
+
+SVR residuals
+```{r}
+
+plot(SVR_6P_tot$residuals)
+
+
+```
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+## RESEAUX NEURONES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+NN CV pour déterminier size et decay
+```{r}
+
+# avec caret
+controlList <- trainControl(method = "cv", number = 5)
+tuneMatrix <- expand.grid(size = c(1, 2, 3, 4, 5, 6), decay = seq(from = 0, to = 0.5, by=0.1))
+
+set.seed(1)
+NN_6P_tot <- train(x = don.train[ , colnames(don.train) != "Y"],
+                   y = don.train[ , colnames(don.train) == "Y"],
+                   method = "nnet",
+                   linout = TRUE,
+                   trace = FALSE,
+                   maxit = 100,
+                   tuneGrid = tuneMatrix,
+                   trControl = controlList)
+
+  
+```
+
+
+
+```{r}
+
+plot(NN_6P_tot)
+
+
+```
+
+
+```{r}
+
+print(NN_6P_tot$finalModel)
+
+
+```
+
+
+```{r}
+names(NN_6P_tot$finalModel)
+
+```
+
+
+```{r}
+tv=NN_6P_tot$finalModel$tuneValue
+str(tv)
+
+```
+
+
+
+
+```{r}
+
+NN_6P <- NN_6P_tot$finalModel
+NN_6P_pred <- predict(NN_6P, newdata = don.test)
+MSE_NN_6P <- sqrt(mean((NN_6P_pred - don.test$Y)^2))
+
+```
+

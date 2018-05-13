@@ -1,0 +1,321 @@
+---
+title: "Modèles OLS"
+author: "Nhu-Nguyen"
+date: "21 mars 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+REGRESSION LINEAIRE
+
+Sur l'ensemble de la base (avec tous les pays), les variables significatives sont celles de:
+- la température, ce qui est logique
+- des pays (UK, ES, FR, DE, BE): ce qui plaide pour un modèle par pays. A noter que le pays NL n'apparait pas
+- de certains mois: les mois d'hiver (novembre, décembre, février,janvier, mars) avec un coefficient positif et le mois de mai (moins significatif, avec un coefficient négatif)
+- de certains jours correspondant au week end (samedi et dimanche)
+
+NB: les températures retardées n'apparaissent pas
+
+Le graphe des résidus montre un structure, le modèle devrait pouvoir être amélioré.
+
+
+base_F_6P_cr tous les pays OLS RL
+```{r}
+
+# REGRESSION LINEAIRE SUR BASE TOTALE centrée réduite
+don=base_F_6P_cr
+head(don)
+
+# library
+library(stargazer)
+library(questionr)
+
+
+#-------------------------------------------------------------------
+# definition de Y variable a predire et X les variables explicatives
+#-------------------------------------------------------------------
+don <- rename.variable(don, "Conso", "Y")
+str(don)
+
+# creation des variables Y et X
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+
+# RL avec toutes les variables
+# R² ajusté =0.8642, F-Stat=1002 Residual standard error: 0.3686
+# variables significatives Temp, day_length, teff, seuil, T00,t1,t2,t3,t4,t5,Pays
+# certaines variables n'ont pas de coef (NA): weekend1, wday, quarter,season
+RL_F<-lm(Y~.,data=don)
+RL_F_sum<-summary(RL_F)
+RL_F_sum
+
+# sur la base totale, avec seulement les variables significatives Temp, day_length, teff, seuil, T00,t1,t2,t3,t4,t5,Pays
+# R² ajusté =0.86, F-Stat=3037 Residual standard error: 0.3743
+# le graphe des résidus vs fitted est très structuré, en 3 groupes distincts
+RL_F1<-lm(Y~Pays+Temp+day_length+teff+seuil+T00+t1+t2+t3+t4+t5,data=don)
+RL_F1_sum<-summary(RL_F1)
+RL_F1_sum
+plot(RL_F1) 
+
+#visualistion des résultats avec stargazer
+stargazer(RL1_F, type='text', flip=TRUE)
+
+
+```
+
+base_F_6P_cr tous les pays OLS RL avec interaction 
+```{r}
+# base_BE centrée réduite
+don<-base_F_6P_cr
+
+# renommer variable cible conso en Y
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+str(don)
+
+
+# OLS AVEC INTERACTION entre la température et les autres variables
+# les variables significatives sont day_length + year leadholiddays + Temp+ month*Temp + year*Temp
+# R² ajusté à 0.09722, F-Stat à 14, residuak sd error à 0.9501
+# le graphe des résidus vs fitted reste très structuré, avec 3 groupes distincts
+RLI_F<-lm(Y~(cosinus + sinus + day_length + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays)*Temp,data=don) # équivalent à lm(Y~Date*Temp+mois*Temp+jour*Temp...)
+RLI_F_sum<-summary(RLI_F)
+RLI_F_sum
+mse_RLI_F= mean((Y-predict(RLI_F,don))^2, na.rm=TRUE)
+plot(RLI_F)
+
+
+# modèle OLS avec interaction avec seulement les variables significatives
+# R² ajusté à 0.0984, F-Stat à 24, residuak sd error à 0.9495
+# le graphe des résidus vs fitted reste très structuré, avec 3 groupes distincts
+RLI_F1<-lm(Y~ day_length + year + leadholidays + Temp + month*Temp + year*Temp,data=don) 
+RLI_F1_sum<-summary(RLI_F1)
+RLI_F1_sum
+mse_RLI_F1= mean((Y-predict(RLI_F1,don))^2, na.rm=TRUE)
+plot(RLI_F1)
+
+
+
+```
+
+
+
+UN MODELE LINEAIRE PAR PAYS: BELGIQUE
+
+
+base_BE_F_cr OLS SANS INTERACTION
+```{r}
+
+# BELGIQUE OLS sans interaction sur base centrée réduite
+
+don<-base_BE_F_cr
+dim(don)
+
+# renommer variable cible conso en Y
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+str(don)
+
+# modèle linéaire simple sur Y, avec toutes les variables
+# variables signficatives: Temp, cosinus, sinus, day_length, T00, t1,t4,t5,t6,t7, monthFeb, monthjan, month march, daySunday, dayThur dayTuesday, dayWednesday lagholidays1 leadholidays1
+# R² ajust 0.9674 F Stat 905 Residual standard error: 0.1888
+# graphe résidus vs fitted incurvé
+RL_BE<-lm(Y~.,data=don)
+RL_BE_sum<-summary(RL_BE)
+RL_BE_sum
+plot(RL_BE) 
+
+
+# selection des variables significatives à la main, en en gardant que les pvalue significatives
+# R² ajust 0.9655 F Stat 1118 Residual standard error: 0.1943
+# graphe résidus vs fitted encore incurvé
+RL_BE1<-lm(Y~ Temp+cosinus+sinus+day_length+T00+t1+t4+t5+t6+t7+month+day+lagholidays+leadholidays, data=don)
+RL_BE1.sum<-summary(RL_BE1)
+RL_BE1.sum
+plot(RL_BE1) 
+
+
+```
+
+base_BE_F_cr OLS SANS INTERACTION step
+```{r}
+# selection des variables significatives avec step
+# step picks the best model from the one-term-dropped models and repeats the process until no further improvement in the model can be made by dropping a term. 
+# The test parameter is optional, the default criteria is "AIC". It can also take the values "F" and "LRT".
+# graphe résidus vs fitted incurvé
+step(RL_BE, test="F")
+RL_BE_step<-lm(formula = Y ~ Temp + cosinus + sinus + day_length + T00 + 
+    t1 + t4 + t5 + t6 + t7 + month + year + day + holidays + 
+    lagholidays + leadholidays, data = don)
+plot(RL_BE_step)
+
+
+```
+
+
+base_BE_F_cr OLS SANS INTERACTION synthèse
+```{r}
+# comparaison avec modèle linéaire issu de step
+# R² ajusté step légèrement meilleur que le modèle en ne gardant directement que les  variables significative (step à 0.967 vs 0.965), mais égal à celui du modèle total
+# F stat moins élevé que RL_BE1 mais supérieur au modèle total
+# residual std error moins élevé que RL_BE1 mais égal modèle total
+stargazer(RL_BE,RL_BE1,RL_BE_step,type='text', flip=TRUE, title="Results", keep=c("Date","meteo"), column.labels = c("BE", "BE1","step"))
+
+
+```
+
+
+ANOVA
+```{r}
+# anova: the returned information for the F-test is the difference in the sum of squares between the models, the F-statistic for this difference, and the p-value for the F-statistic.
+anova(RL_BE,RL_BE1)
+anova(RL_BE1,RL_BE_step) # la différence semble significative entre step et BE1
+
+
+```
+
+
+
+base_BE_F_cr OLS AVEC INTERACTION SIMPLE
+```{r}
+# base_BE centrée réduite
+don<-base_BE_F_cr
+
+# renommer variable cible conso en Y
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+str(don)
+
+
+# BELGIQUE OLS AVEC INTERACTION entre la température et les autres variables
+# les variables significatives sont cosinus + day_length + month + year + day + leadholiddays + Temp +month*Temp + year*Temp
+# R² ajusté à 0.9781, F-Stat à 942, residuak sd error à 0.1546
+# le graphe des résidus vs fitted n'a plus de structure incurvée. Le modèle avec interaction semble donc meilleur qu'un modèle linéaire sans interaction
+RLI_BE<-lm(Y~(cosinus + sinus + day_length + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays)*Temp,data=don) # équivalent à lm(Y~Date*Temp+mois*Temp+jour*Temp...)
+RLI_BE_sum<-summary(RLI_BE)
+RLI_BE_sum
+plot(RLI_BE)
+
+
+
+# modèle OLS avec interaction avec seulement les variables significatives
+# R² ajusté à 0.9767, F-Stat à 1281, residuak sd error à 0.15974
+RLI_BE1<-lm(Y~ cosinus + day_length + month + year + day + leadholidays + Temp + (month+year)*Temp,data=don) 
+RLI_BE1_sum<-summary(RLI_BE1)
+RLI_BE1_sum
+plot(RLI_BE1)
+
+
+
+```
+
+base_BE_F_cr OLS comparaison simple et interaction
+```{r}
+# comparaison modèles linéaire sans et avec interaction
+stargazer(RL_BE_step,RLI_BE1,type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL", "RLI"))
+
+
+
+```
+
+base_BE_F_cr OLS 
+```{r}
+
+mse_RL_BE0= mean((don$Y-predict(RL_BE,don))^2,na.rm=TRUE) # prediction from a rank-deficient fit may be misleading 
+
+mse_RL_BE1= mean((don$Y-predict(RL_BE1,don))^2, na.rm=TRUE) 
+
+mse_RL_BE_step= mean((don$Y-predict(RL_BE_step,don))^2, na.rm=TRUE) 
+
+mse_RLI_BE= mean((don$Y-predict(RLI_BE,don))^2, na.rm=TRUE) # prediction from a rank-deficient fit may be misleadinglonger object length is not a multiple of shorter object length
+
+mse_RLI_BE1= mean((don$Y-predict(RLI_BE1,don))^2, na.rm=TRUE) # longer object length is not a multiple of shorter object length
+
+
+mse.BE=c(mse_RL_BE0,mse_RL_BE1,mse_RL_BE_step, mse_RLI_BE,mse_RLI_BE1)
+which.min(mse.BE) # c'est le 4ème ie RLI_BE qui présente la plus petite MSE, avec toutes les variables
+
+# graphe avec étiquettes horizontale (las=1)
+graph<-barplot(mse.BE, xlab="modèles", ylab="MSE", main="MSE des modèles sur la Belgique",las=0)
+axis(1, labels=c("BE0", "BE1", "step", "RLI", "RLI1"), at = graph)
+
+
+
+```
+
+
+
+
+OLS AVEC INTERACTION POLY pas verifié
+```{r}
+# BELGIQUE OLS AVEC INTERACTION entre polynome de la température (METEO) et les variables (Date, mois, et jour)
+RLI_P2_BE<-lm(Y~(Date+mois+jour)*I(poly(meteo,2)),data=base_BE) 
+RLI_P2_BE_sum<-summary(RLI_P2_BE)
+RLI_P2_BE_sum
+
+# comparaison modèles linéaire avec interaction, avec iineraction et poly (meteo,2)
+# faible hausse du R& ajusté de 0.972 à 0.974
+# faible  baisse du Residual std error de 26 732 975 à 26 126 736 , chiffres encore très élevés
+# baisse sensible de F stat de 1094.609 à 758.449
+stargazer(RLI_BE, RLI_P2_BE, type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RLI", "RLIP2"))
+
+# l'ajout du poly n'améliore pas significativement le R² ajusté et fait baisser sensiblement la F-stat.
+# il ne semble pas intéressant de mettre la variable meteo en polynome dans l'interraction
+
+# graphe des valeurs prédites selon les modèles
+plot(don$Date, don$Y, xlab = "date", ylab="Conso", main="modèles RL et RLI sur la Belgique" )
+lines(don$Date,pred_RL_BE1$fit, col="blue")
+lines(don$Date,pred_RLI_BE$fit, col="red")
+
+
+```
+
+
+
+
+MODELE SUR L ALLEMAGNE
+```{r}
+# ALLEMAGNE
+
+
+
+```
+
+
+
+MODELE LINEAIRE SUR LES PAYS BAS
+```{r}
+
+
+```
+
+
+
+MODELE LINEAIRE SUR L ESPAGNE
+```{r}
+
+
+```
+
+
+
+MODELE LINEAIRE SUR LA FRANCE
+```{r}
+
+
+```
+
+
+MODELE LINEAIRE SUR LE ROYAUME UNI
+```{r}
+
+
+
+```
+

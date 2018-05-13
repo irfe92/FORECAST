@@ -1,0 +1,332 @@
+---
+title: "Base New"
+author: "NNN"
+date: "17 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Nouvelle base de données
+"Date"         "Conso"        "Temp"         "month"        "year"         "day"          "weekend"      "cosinus"      "sinus"        "wday"         "quarter"      "season"       "doy"          "holidays"    
+"day_length"   "jc"           "lagholidays"  "leadholidays" "Pays"   
+
+```{r}
+
+library(stats)
+library(questionr)
+
+load(file.choose()) # chargement de formats.Rdata avec les nouvelles variables
+
+base_new<-data.frame(formats)
+head(base_new)
+names(base_new)
+
+summary(base_new)
+str(base_new)
+
+
+
+# définir certaines variables en factor: year, day, weekend, weekday, wday, season, holidays, jc, lagholydays, leadholdays
+# en fait, les variables numériques sont: conso, temp, cosinus, sinus
+
+# noms des variables dans un vecteur
+dput(names(base_new))
+# c("Date", "Conso", "Temp", "month", "year", "day", "weekend", "cosinus", "sinus", "wday", "quarter", "season", "doy", "holidays", "day_length", "jc", "lagholidays", "leadholidays", "Pays")
+
+
+# suppression de la variable doy
+dim(base_new)
+base_new<-base_new[,-which(colnames(base_new)=="doy")] 
+dim(base_new)
+
+# variables à convertir en facteur
+names_factor=as.vector(c("month", "year", "day", "weekend", "wday", "season","doy","holidays", "jc", "lagholidays", "leadholidays", "Pays"))
+# var_factor=as.vector(outer("base_new$",names_factor, paste, sep=""))
+# var_factor
+
+# transformation en facteur façon manuelle (à améliorer avec une boucle)
+base_new$month<-as.factor(base_new$month)
+base_new$year<-as.factor(base_new$year)
+base_new$day<-as.factor(base_new$day)
+base_new$weekend<-as.factor(base_new$weekend)
+base_new$wday<-as.factor(base_new$wday)
+base_new$season<-as.factor(base_new$season)
+base_new$holidays<-as.factor(base_new$holidays)
+base_new$jc<-as.factor(base_new$jc)
+base_new$lagholidays<-as.factor(base_new$lagholidays)
+base_new$leadholidays<-as.factor(base_new$leadholidays)
+base_new$Pays<-as.factor(base_new$Pays)
+
+# transformation en variable numeric
+base_new$day_length<-as.numeric(base_new$day_length)
+
+#creation  temperatures retardees
+library(dplyr)
+base_new %>%
+  plyr::mutate(t1=lag(base_new$Temp, 1))%>%
+  plyr::mutate(t2=lag(base_new$Temp, 2))%>%
+  plyr::mutate(t3=lag(base_new$Temp, 3))%>%
+  plyr::mutate(t4=lag(base_new$Temp, 4))%>%
+  plyr::mutate(t5=lag(base_new$Temp, 5))%>%
+  plyr::mutate(t6=lag(base_new$Temp, 6))%>%
+  plyr::mutate(t7=lag(base_new$Temp, 7))->base_new
+
+
+# vérification de la base
+str(base_new)
+dim(base_new) # 17538 observations, 26 variables
+
+# creation de sous base par pays, 
+base_BE_new<-subset(base_new,Pays=="BE")
+base_DE_new<-subset(base_new,Pays=="DE")
+base_NL_new<-subset(base_new,Pays=="NL")
+base_UK_new<-subset(base_new,Pays=="UK")
+base_ES_new<-subset(base_new,Pays=="ES")
+base_FR_new<-subset(base_new,Pays=="FR")
+
+# pour chaque base pays on enlève la variable Pays devenue inutile: reste 25 variables
+base_BE_new<-base_BE_new[,-which(colnames(base_BE_new)=="Pays")] 
+base_DE_new<-base_DE_new[,-which(colnames(base_DE_new)=="Pays")]
+base_NL_new<-base_NL_new[,-which(colnames(base_NL_new)=="Pays")]
+base_UK_new<-base_UK_new[,-which(colnames(base_UK_new)=="Pays")]
+base_ES_new<-base_ES_new[,-which(colnames(base_ES_new)=="Pays")]
+base_FR_new<-base_FR_new[,-which(colnames(base_FR_new)=="Pays")]
+
+
+# suppresion des valeurs manquantes
+base_new_nona=na.omit(base_new)        # on passe de 37260 observations à 70003 , 25 variables
+dim(base_nona_new)                     
+
+base_BE_new_nona<-na.omit(base_BE_new)  # on passe de 2923 observations à 1164 , 25 variables
+base_DE_new_nona<-na.omit(base_DE_new)  # on passe de 2923 observations à 1164 , 25 variable 
+base_NL_new_nona<-na.omit(base_NL_new)  # on passe de 2923 observations à 1165 , 25 variable 
+base_UK_new_nona<-na.omit(base_UK_new)  # on passe de 2923 observations à 1163 , 25 variable 
+base_ES_new_nona<-na.omit(base_ES_new)  # on passe de 2923 observations à 785  , 25 variable 
+base_FR_new_nona<-na.omit(base_FR_new)  # on passe de 2923 observations à 1514 , 25 variable 
+
+
+# # base de travail DON
+# don<-base.nona.new
+# dim(don)
+# unique(don$Pays) # 6 pays NL UK ES FR DE BE
+
+
+
+```
+
+
+```{r}
+#-----------------------------------------------------------------
+# centrer et reduire sur les variables numériques
+#-----------------------------------------------------------------
+library(questionr)
+
+# sur base totale
+don<-base_new_nona
+summary (don)
+
+ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
+ind.qual <- sapply(don, function(x) is.factor(x))
+
+# variables quantitative
+don.quant <- don[ ,ind.quant]
+
+# variables qualitative
+don.qual <- don[ ,ind.qual]
+
+#centrer et reduire les variables numeriques
+don.quant.cr<-scale(don.quant)
+# apply(don.quant.cr, MARGIN = 2, FUN=mean)
+# apply(don.quant.cr, MARGIN = 2, FUN=sd)
+
+#reformer la base complete don_cr centree et reduite 
+don_cr<-cbind( don$Date, don.quant.cr,don.qual)
+don_cr <- rename.variable(don_cr, "don$Date", "Date")
+summary(don_cr)
+
+base_new_nona_cr<-don_cr
+
+
+
+```
+
+
+```{r}
+# BASE PAR PAYS CENTREEE REDUITES
+
+# creation de sous base par pays, 
+base_BE_new_nona_cr<-subset(base_new_nona_cr,Pays=="BE")
+base_DE_new_nona_cr<-subset(base_new_nona_cr,Pays=="DE")
+base_NL_new_nona_cr<-subset(base_new_nona_cr,Pays=="NL")
+base_UK_new_nona_cr<-subset(base_new_nona_cr,Pays=="UK")
+base_ES_new_nona_cr<-subset(base_new_nona_cr,Pays=="ES")
+base_FR_new_nona_cr<-subset(base_new_nona_cr,Pays=="FR")
+
+# pour chaque base pays on enlève la variable Pays devenue inutile
+base_BE_new_nona_cr<-base_BE_new_nona_cr[,-which(colnames(base_BE_new_nona_cr)=="Pays")] 
+base_DE_new_nona_cr<-base_DE_new_nona_cr[,-which(colnames(base_DE_new_nona_cr)=="Pays")]
+base_NL_new_nona_cr<-base_NL_new_nona_cr[,-which(colnames(base_NL_new_nona_cr)=="Pays")]
+base_UK_new_nona_cr<-base_UK_new_nona_cr[,-which(colnames(base_UK_new_nona_cr)=="Pays")]
+base_ES_new_nona_cr<-base_ES_new_nona_cr[,-which(colnames(base_ES_new_nona_cr)=="Pays")]
+base_FR_new_nona_cr<-base_FR_new_nona_cr[,-which(colnames(base_FR_new_nona_cr)=="Pays")]
+
+
+```
+
+
+PLOT TEMPERATURE VS DATE
+```{r}
+
+don<-base_new_nona
+
+# plot températures vs date
+plot(don$Date,don$Temp) # faire des lignes différentes par pays
+plot(don$Date,don$day_length) # faire des lignes différentes par pays
+
+library(lattice)
+Temp_BE=don$Temp[which(don$Pays=="BE")]
+Temp_DE=don$Temp[which(don$Pays=="DE")]
+Temp_NL=don$Temp[which(don$Pays=="NL")]
+Temp_FR=don$Temp[which(don$Pays=="FR")]
+Temp_ES=don$Temp[which(don$Pays=="ES")]
+Temp_UK=don$Temp[which(don$Pays=="UK")]
+
+date_BE=don$Date[which(don$Pays=="BE")]
+date_DE=don$Date[which(don$Pays=="DE")]
+date_NL=don$Date[which(don$Pays=="NL")]
+date_FR=don$Date[which(don$Pays=="FR")]
+date_ES=don$Date[which(don$Pays=="ES")]
+date_UK=don$Date[which(don$Pays=="UK")]
+
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_FR,Temp_FR, col="blue")
+lines(date_ES,Temp_ES, col="yellow") # température ES supérieure à celle des autres pays
+lines(date_UK,Temp_UK, col="pink")
+
+
+
+```
+
+```{r}
+# sur base centrée réduite
+
+don<-base_new_nona_cr
+dim(don)
+
+# # plot températures vs date
+# plot(don$Date,don$Temp) # faire des lignes différentes par pays
+# plot(don$Date,don$day_length) # faire des lignes différentes par pays
+
+library(lattice)
+Temp_BE_cr=don$Temp[which(don$Pays=="BE")]
+Temp_DE_cr=don$Temp[which(don$Pays=="DE")]
+Temp_NL_cr=don$Temp[which(don$Pays=="NL")]
+Temp_FR_cr=don$Temp[which(don$Pays=="FR")]
+Temp_ES_cr=don$Temp[which(don$Pays=="ES")]
+Temp_UK_cr=don$Temp[which(don$Pays=="UK")]
+
+date_BE_cr=don$Date[which(don$Pays=="BE")]
+date_DE_cr=don$Date[which(don$Pays=="DE")]
+date_NL_cr=don$Date[which(don$Pays=="NL")]
+date_FR_cr=don$Date[which(don$Pays=="FR")]
+date_ES_cr=don$Date[which(don$Pays=="ES")]
+date_UK_cr=don$Date[which(don$Pays=="UK")]
+
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_FR_cr,Temp_FR_cr, col="blue")
+lines(date_ES_cr,Temp_ES_cr, col="yellow") # température ES supérieure à celle des autres pays
+lines(date_UK_cr,Temp_UK_cr, col="pink")
+
+length(date_BE_cr)
+
+
+```
+
+GROUPE BE DE NL
+```{r}
+# groupe homogène en températures BE DE NL
+
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+
+```
+
+```{r}
+# groupe homogène en températures BE DE NL centré réduit
+
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+
+```
+
+GROUPE BE DE NL VS FR
+```{r}
+
+# comparaison groupe BE DE NL avec FR
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_FR,Temp_FR, col="blue") # température FR supérieure à celle des autres pays
+
+
+```
+
+```{r}
+# comparaison groupe BE DE NL avec FR centré réduit
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_FR_cr,Temp_FR_cr, col="blue") # température FR supérieure à celle des autres pays
+
+
+```
+
+GROUPE BE DE NL VS UK
+```{r}
+# comparaison groupe BE DE NL avec UK
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_UK,Temp_UK, col="pink") # UK amplitude moins forte
+
+```
+
+```{r}
+# comparaison groupe BE DE NL avec UK centré réduit
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_UK_cr,Temp_UK_cr, col="pink") # UK amplitude moins forte
+
+```
+
+GROUPE BE DE NL VS ES
+```{r}
+# comparaison groupe BE DE NL avec UK
+plot(date_BE,Temp_BE, type = "l")
+lines(date_DE,Temp_DE, col="red")
+lines(date_NL,Temp_NL, col="green")
+lines(date_ES,Temp_ES, col="yellow") # UK amplitude moins forte
+
+```
+
+```{r}
+# comparaison groupe BE DE NL avec UK centré réduit
+plot(date_BE_cr,Temp_BE_cr, type = "l")
+lines(date_DE_cr,Temp_DE_cr, col="red")
+lines(date_NL_cr,Temp_NL_cr, col="green")
+lines(date_ES_cr,Temp_ES_cr, col="yellow") # UK amplitude moins forte
+
+```
+
+
+

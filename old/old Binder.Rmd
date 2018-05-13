@@ -1,0 +1,102 @@
+---
+title: "Binder"
+author: "Irina Nhu-Nguyen Saaid"
+date: "14 février 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Nous prévoyons de tester:
+- modèle linéaire
+- modele avec pénalisation lasso et Ridge
+- GAM
+-Random Forest
+- SVR?
+- Shiny
+
+
+
+```{r}
+
+# importation des bases
+library(dplyr)
+Conso=read.csv("Conso.csv", sep = ";", header = TRUE, dec = ",")
+Conso=Conso[,-1]
+Conso$Date=as.Date(Conso$Date)
+
+Temp=read.csv("Temp.csv", sep = ";", header = TRUE, dec = ",")
+Temp=Temp[,-1]
+Temp$Date=as.Date(Temp$Date)
+
+str(Conso)
+
+colnames(Temp)[which(colnames(Temp)=="DE")]<-"tmoy"
+
+Temp %>%
+  plyr::mutate(tmoy1=lag(tmoy, 1))%>%
+  plyr::mutate(tmoy2=lag(tmoy, 2))->Temp
+
+Temp.nona<-na.omit(Temp)
+
+head(Conso)
+head(Temp.nona)
+
+# création d'une base regroupant les deux fichiers
+
+base<-merge(Conso,Temp,by="Date", all.x=TRUE)
+base.nona<-na.omit(base)
+head(base.nona)
+
+```
+
+```{r}
+#MODELE LINEAIRE
+
+```
+
+
+
+
+```{r}
+# optimisation des coefficients de températures retardées
+#install.packages("Rsymphony")
+library(Rsymphony)
+
+f <- function(p) cor(p[1]*base.nona$tmoy + p[2]*base.nona$tmoy1 + p[3]*base.nona$tmoy2,base.nona$TOTAL )
+
+optim(
+  c(1,1,1)/3, # Starting values
+  f,            # Function to maximize
+  control=list(fnscale=-1) # Maximize (default is to minimize)
+)
+
+
+sigmoid <- function(x) exp(x) / ( 1 + exp(x) )
+convert <- function(p) {
+  q1 <- sigmoid(p[1])
+  q2 <- sigmoid(p[2])
+  q3 <- (1-q1-q2)
+  c(q1,q2,q3)
+}
+
+# Optimization
+g <- function(p) f(convert(p))
+p <- optim(c(0,0,0), g, control=list(fnscale=-1))
+convert(p$par)
+
+
+```
+résultats bizarres
+
+
+```{r}
+#Random Forest
+
+
+
+
+```
+

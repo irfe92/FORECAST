@@ -1,0 +1,348 @@
+---
+title: "Selection variables"
+author: "Nhu-Nguyen"
+date: "2 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET SUR BASE BE
+```{r}
+
+#install.packages('leaps')
+#install.packages('ISLR')
+library(ISLR)
+library(leaps)
+library(questionr)
+
+# base Belgique centrée réduite, sans les variables météo
+don<-base_BE_F_cr
+head(don)
+dim(don)
+
+# creation des variables Y et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+Y=don$Y 
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train 2/3 individus et test 1/3
+set.seed(1)
+dim<-nrow(don)
+train=sample(dim,2*dim/3,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+test=model.matrix(Y~.,data=don[-train,])# base de test
+
+p=ncol(don) # nombre de variables explicatives
+p
+
+
+# =====================================================================================
+#---- SELECTION EXHAUSTIVE: A EVITER SI P GRAND !! (ic 27 variables trop grand)
+# Exhaustive search will be S L O W, must specify really.big=T
+# On va obtenir 2^p modeles comprenant entre une et p variables
+# par défaut, le nombre de variable est 8. Préciser le nombre de variables avec nvmax
+
+best_full_BE=regsubsets(Y~.,data=don[train,],nvmax=p,method='exhaustive')
+
+# choisir les meilleures variables: evaluer chacun des modeles sur le test set et calculer la MSE
+mse.full_BE=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_full_BE,id=i)
+  pred=test[,names(coefi)]%*%coefi
+  mse.full_BE[i]=mean((don$Y[-train]-pred)^2)
+}
+
+# plot les RMSE des modeles sur le training 
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(mse.full_BE),ylab='Root MSE des p modeles',pch=19,type='b')
+which.min(mse.full_BE) # ici, c'est le modèle à 12 variables (toutes les variables)
+
+# Pour acceder aux coefficient du modele avec la RMSE la plus petite, on appelle la fonction coeff
+# Pour acceder aux RSS des modeles, on lance la fonction summary
+coef(best_full,12)
+summary(best_full)$rss
+
+
+# =====================================================================================
+#---- FORWARD SELECTION: NB pas assuré d'avoir le modèle optimal, mais possible si n<p
+
+best_fw_BE=regsubsets(Y~.,data=don[train,],nvmax=p,method='forward')
+fw_sum_BE<-summary(best_fw_BE)
+
+# pour chacun des modeles sur le test set, calculer la MSE
+mse.fw_BE=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_fw_BE,id=i)
+  pred=test[,names(coefi)]%*%coefi
+  mse.fw_BE[i]=mean((don$Y[-train]-pred)^2)
+}
+
+# on plot les RMSE des p modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(mse.fw_BE),ylab='Root MSE des p modeles FW', main="Regsubset forward sur BE",pch=19,type='b')
+ 
+
+
+```
+
+BE regsubset forward
+```{r}
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables à la place de )
+which.min(mse.fw_BE) # ici, c'est le modèle à 26 variables
+coef(best_fw_BE,26)
+
+# Pour acceder aux RSS des modèles, on lance la fonction summary
+fw_sum_BE
+fw_sum_BE$rss
+
+
+```
+
+regsubet BE backward
+```{r}
+
+# =====================================================================================
+# selection variables BACKWARD: NB pas assuré d'avoir le modèle optimal,pas possible si n<p
+
+best_bw_BE=regsubsets(Y~.,data=don[train,],nvmax=p,method='backward')
+sum_bw_BE<-summary(best_bw_BE)
+
+# pour chacun des modeles sur le test set, calculer la MSE
+mse.bw_BE=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_bw_BE,id=i)
+  pred=test[,names(coefi)]%*%coefi
+  mse.bw_BE[i]=mean((don$Y[-train]-pred)^2)
+}
+
+# on plot les RMSE des p modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(mse.bw_BE),ylab='Root MSE des p modeles',main="Regsubset backward sur BE",pch=19,type='b') 
+
+
+
+```
+
+
+
+```{r}
+
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables à la place de 2)
+which.min(mse.fw_BE) #ici, c'est le modèle à 26 variables (toutes les variables)
+coef(best_bw_BE,26) 
+
+```
+
+```{r}
+# plot des RMSE pour tous les modèles
+x=c(1:p)
+x
+y1=sqrt(mse.fw_BE)
+y2=sqrt(mse.bw_BE)
+plot(x, y1, type = "l", ylim = range(c(y1, y2)), xlab = "nb de variables", ylab = "root mse", main="FW (blue) et BW (red)")
+lines(x, y1, col = "blue")
+lines(x, y2, col = "red")
+
+
+```
+
+
+```{r}
+
+# Pour acceder aux RSS des modeles, on lance la fonction summary
+sum_bw_BE$rss
+summary(best_full_BE)$rss 
+summary(best_fw_BE)$rss
+summary(best_bw_BE)$rss
+
+
+
+
+
+
+
+```
+
+```{r}
+# choix des variables selon critères BIC, R² ajusté, Cp
+# graphe BIC autre: “Cp”, “adjr2”, “r2". classification des valeurs de BIC selon les modèles, en haut la plus petite valeur de BIC et en noir les variables inclusent dans le modèle
+# Le $R^2$ ajusté permet de déterminer à quel point le modèle ajuste vos données lorsque vous souhaitez l'ajuster en fonction du nombre de prédicteurs inclus. La valeur du $R^2$ ajusté intègre le nombre de prédicteurs dans le modèle elle donc plus adaptée pour nous aider à choisir le modèle.
+
+# graphe BIC
+plot(best_fw_BE, scale="bic", main=" BIC pour Regsubset BE FW") 
+
+
+
+```
+
+
+
+```{r}
+# graphe R² ajusté
+plot(best_fw_BE, scale="adjr2", main=" R² Ajuste pour Regsubset BE FW")
+
+ 
+```
+
+```{r}
+
+# graphe Cp
+plot(best_fw_BE, scale="Cp", main=" Cp pour Regsubset BE FW")
+
+```
+
+
+
+```{r}
+
+########################
+# Afin de nous aider à choisir le modèle à sélectionner, identifiez l'emplacement du point maximum / minimum pour chaque critère : $RSS$, $R^2$ ajusté, $C_p$ et $BIC$. Dans chaque cas, afficher les variables sélectionnées.
+reg.summary<-summary(best_fw_BE)
+
+min.rss <- which.min(reg.summary$rss)
+max.adjr2 <- which.max(reg.summary$adjr2)
+min.cp <- which.min(reg.summary$cp)
+min.bic <- which.min(reg.summary$bic)
+min.rss
+max.adjr2
+min.cp
+min.bic # 14
+names(which(reg.summary$which[min.rss,]==TRUE))
+names(which(reg.summary$which[max.adjr2,]==TRUE))
+names(which(reg.summary$which[min.cp,]==TRUE))
+names(which(reg.summary$which[min.bic,]==TRUE))
+
+# Sur une même fenêtre graphique représenter les courbes des différents critère. Ajouter sur chaque courbe, le maximum/minimum correspondant.
+
+par(mfrow =c(2,2))
+plot(reg.summary$rss,xlab="Number of Variables",ylab="RSS",type="l")
+points(min.rss,reg.summary$rss[min.rss],col ="red",cex =2, pch =20)
+plot(reg.summary$adjr2,xlab="Number of Variables ",ylab="Adjusted RSq",type="l")
+points(max.adjr2,reg.summary$adjr2[max.adjr2],col ="red",cex =2, pch =20)
+plot(reg.summary$cp,xlab="Number of Variables ",ylab="Cp",type="l")
+points(min.cp,reg.summary$cp[min.cp],col ="red",cex =2, pch =20)
+plot(reg.summary$bic,xlab="Number of Variables ",ylab="BIC",type="l")
+points(min.bic,reg.summary$bic[min.bic],col ="red",cex =2, pch =20)
+
+```
+
+```{r}
+# C'est avec le critère BIC qu'on a le plus petit modèle
+min.bic # 14
+min.rss # 28
+max.adjr2 # 28
+min.cp # 26
+
+
+```
+
+
+
+SELECTION VARIABLES AVEC BESTGLM
+```{r}
+# avec criteres AIC et BIC
+# Cp et AIC sont proportionnels
+# BIC pénalise plus fortement les modèles avec beaucoup de variables que AIC (pour n>7)
+
+library(bestglm)
+library(questionr)
+
+
+# sur la base centrée réduite, sans les autres variables méteo
+don<-base_BE_F_cr
+head(don)
+
+# creation des variables Y et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+
+#enlever les variables avec des factors de plus de deux niveaux
+ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
+ind.qual <- sapply(don, function(x) is.factor(x))
+
+# variables quantitative
+don.quant <- don[ ,ind.quant]
+
+# variables qualitative
+don.qual <- don[ ,ind.qual]
+
+# Attention ici on doit mettre la variable a expliquer Y cible dans don en dernier
+#nb=which(colnames(don) == "Y") renvoi le numéro de la colonne de Y
+Y=don.quant[,which(colnames(don.quant) == "Y")]
+X=don.quant[,-which(colnames(don.quant) == "Y")]
+data=cbind(X,Y)
+str(data)
+# base de données data XY avec Y cible à la fin
+# 15 variables: Temp, cosinus, sinus, day_length, teff, seuil, T00, t1 à t7 et Y
+
+
+# Selection FORWARD avec critere AIC : PB  linear dependencies found
+sel_AIC_fw=bestglm(data,family=gaussian,IC="AIC",method="forward") 
+attributes(sel_AIC_fw)
+sel_AIC_fw$BestModels
+sel_AIC_fw$BestModel # variables retenues 
+
+
+
+
+```
+
+```{r}
+# Selection FORWARD avec critere BIC
+sel_BIC_fw=bestglm(data,family=gaussian,IC="BIC",method="forward")
+attributes(sel_BIC_fw)
+sel_BIC_fw$BestModels
+sel_BIC_fw$BestModel # variables retenues meteo et tmoy7
+
+
+
+```
+
+
+```{r}
+
+
+# Selection BACKWARD avec critere AIC
+sel_AIC_bw=bestglm(data,family=gaussian,IC="AIC",method="backward")
+attributes(sel_AIC_bw)
+sel_AIC_bw$BestModels
+sel_AIC_bw$BestModel # variables retenues meteo, tmoy2 et tmoy7
+
+
+# Selection BACKWARD avec critere BIC
+sel_BIC_bw<-bestglm(data,family=gaussian,IC="BIC",method="backward")
+sel_BIC_bw$BestModels
+sel_BIC_bw$BestModel # variables retenues meteo, tmoy7
+
+
+# Selection EXHAUSTIVE avec critere BIC
+sel_BIC_exh=bestglm(data,family=gaussian,IC="BIC")
+attributes(sel_BIC_exh)
+sel_BIC_exh$BestModels
+sel_BIC_exh$BestModel # variables retenues meteo, tmoy7
+
+# Selection avec critere LOOCV
+sel_LOOCV=bestglm(data,family=gaussian,IC="LOOCV")
+attributes(sel_LOOCV)
+sel_LOOCV$BestModels
+sel_LOOCV$BestModel # variables retenues meteo, tmoy7
+
+# Selection exhaustive avecVALIDATION CROISEE 10 blocs 
+sel.cv<-bestglm(data,family=gaussian,
+        IC="CV",CVArgs=list(Method="HTF",K=10,REP=1))
+attributes(sel.cv)
+sel.cv$BestModels
+sel.cv$BestModel # variablesretenue meteo
+
+
+
+```
+
+

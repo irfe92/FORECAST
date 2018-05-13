@@ -1,0 +1,123 @@
+---
+title: "Synthese Belgique"
+author: "NNN"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+```{r}
+# COMPARAISON DES MODELES BE
+
+#Load Library
+# install.packages("stargaze")
+library(stargazer)
+library(splines) 
+library(randomForest)
+library(e1071)
+
+
+
+# sur toute la base BE
+don<-base_BE
+
+library(questionr)
+don<- rename.variable(don, "conso", "Y")
+head(don)
+
+# creation des variables Y et X
+Y=don$Y 
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+
+
+# CROSS VALIDATION HOLD OUT TRAIN/TEST
+set.seed(1)
+dim<-nrow(donYX)
+train<-sample(dim,2*dim/3)
+test_donYX=donYX[-train,]
+
+
+# =======================================================================================================
+# MODELES SUR BE avec data set TRAIN 2/3 et TEST 1/3
+# =======================================================================================================
+
+# modèles sur train
+# MSE sur test
+
+
+# modèle linéaire simple sur toute la base BE, avec que les variables significatives
+RL_BE1<-lm(Y~Date+meteo+mois+jour+tmoy1+tmoy7, data=don[train,])
+pred_RL_BE1=predict(RL_BE1, newdata=don[-train,], se=T)
+mse_RL_BE1= mean((Y[-train]-predict(RL_BE1,don[-train,]))^2)
+
+# modèle linéaire avec interaction sur toute la base BE
+RLI_BE<-lm(Y~(Date+mois+jour)*meteo,data=don[train,]) 
+pred_RLI_BE=predict(RLI_BE, newdata=don[-train,], se=T)
+mse_RLI_BE= mean((Y[-train]-predict(RLI_BE,don[-train,]))^2)
+
+# poly pour BE sur le critère du MSE degré 9 choisi par CV
+poly_BE<- lm(formula=Y~poly(X,9, raw=T), data=donYX[train,])
+pred_poly_BE=predict(poly_BE, newdata=list(donYX[-train,]), se=T)
+mse_poly_BE= mean((Y[-train]-predict(poly_BE,donYX[-train,]))^2)
+
+# modèle spline sur toute la base BE, df=3 et natural spline choisis par CV
+SP_BE=lm(Y~ns(X,df=3), data=donYX[train,]) #  2 noeuds aux quantiles 33% (7.4) et 66% (13.7)
+pred_SP_BE=predict(SP_BE, newdata=donYX[-train,], se=T)
+mse_SP_BE= mean((Y[-train]-predict(SP_BE,donYX[-train,]))^2)
+
+# modèle GAM sur toute la base_BE, degré poly choisi par CV
+gam_BE=lm(Y~poly(meteo,degree=7) + Date + jour + mois, data=don[train,]) # ne fonctionne pas valeurs manquantes non autorisées dans 'poly'
+pred_gam_BE=predict(gam_BE, newdata=don[-train,], se=T)
+mse_gam_BE= mean((Y[-train]-predict(gam_BE,don[-train,]))^2)
+# gam_BE=lm(Y~poly(meteo,7)+Date+jour+mois, data=don) fonctionne sur toute la base
+
+
+# Random Forest sur toute de la base, avec mtry choisi par CV hold out, ntree=500 par défaut
+RF_BE<-randomForest(Y[train]~., mtry = 7, data=don[train,])
+mse_RF_BE= mean((Y[-train]-predict(RF_BE,don[-train,]))^2)
+
+# SVR sur toute la base BE
+svr_BE = svm(Y[train]~.,don[train,])
+mse_SVR_BE= mean((Y[-train]-predict(svr_BE,don[-train,]))^2)
+
+
+# ======================================================================================================
+# SYNTHESE DES MODELES objet SVR pas reconnu par stargazer
+# ======================================================================================================
+
+stargazer(RL_BE1,RLI_BE,poly_BE,SP_BE, gam_BE, type='text', flip=TRUE, title="Results", align=TRUE, keep=c("Date"), column.labels = c("RL", "RLI","poly","Spline" ,"GAM"), model.names = TRUE, single.row = TRUE)
+
+
+# comparaison des MSE entre les modèles RL, RLI, Spline, GAM
+mse_BE=c(mse_RL_BE1, mse_RLI_BE, mse_poly_BE, mse_SP_BE,mse_gam_BE,mse_RF_BE,mse_svr_BE)
+which.min(mse_BE) # c'est le modèle 6 ie random forest qui présente la plus petite MSE
+
+
+# graphe des MSE
+graph<-barplot(mse_BE, xlab="modèles", ylab="MSE", main="MSE des modèles sur la Belgique",las=0)
+axis(1, labels=c("Reg.Lin", "Reg.Lin Interaction", "Poly" ,"SPLINE","GAM", "RF", "SVR"), at = graph)
+
+
+# graphe des valeurs prédites selon les modèles
+plot(don$Date, don$Y, xlab = "date", ylab="Conso", main="modèles sur la Belgique" )
+lines(don$Date,pred_RL_BE1$fit, col="blue")
+lines(don$Date,pred_RLI_BE$fit, col="red")
+lines(don$Date,pred_poly_BE$fit, col="pink")
+lines(don$Date,pred_SP_BE$fit, col="green")
+lines(don$Date,pred_gam_BE$fit, col="yellow")
+lines(don$Date, pred_svr, col="purple")
+
+```
+
+
+```
+
+
+

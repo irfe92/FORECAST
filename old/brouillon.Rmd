@@ -1,0 +1,139 @@
+---
+title: "draft"
+author: "Nhu-Nguyen"
+date: "12 mai 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+
+NL RL
+```{r}
+# extraction des coefficients significatifs
+coef<-RL_NL_tot_sum$coefficients[,4]
+RL_NL_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RL_NL_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RL_NL_tot_var[i] , "+ ") }
+formule
+
+# extraction des coefficients significatifs
+coef<-RL_NL_fin_sum$coefficients[,4]
+RL_NL_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RL_NL_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RL_NL_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+NL RLI
+```{r}
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_tot_sum$coefficients[,4]
+RLI_NL_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_tot_var[i] , "+ ") }
+formule
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_fin_sum$coefficients[,4]
+RLI_NL_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_fin_var[i] , "+ ") }
+formule
+
+
+```
+
+
+NL RLI Multi
+```{r}
+# extraction des coefficients significatifs
+coef<-RLI_NL_multi_tot_sum$coefficients[,4]
+RLI_NL_multi_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_multi_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_multi_tot_var[i] , "+ ") }
+formule
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_multi_fin_sum$coefficients[,4]
+RLI_NL_multi_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_multi_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_multi_fin_var[i] , "+ ") }
+formule
+
+
+```
+
+
+NL RLI P2
+```{r}
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_P2_tot_sum$coefficients[,4]
+RLI_NL_P2_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_P2_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_P2_tot_var[i] , "+ ") }
+formule
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_P2_fin_sum$coefficients[,4]
+RLI_NL_P2_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_P2_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_P2_fin_var[i] , "+ ") }
+formule
+
+
+```
+
+
+
+NL GAM
+```{r}
+
+# extraction des coefficients significatifs
+coef<-GAM_NL_tot_sum$coefficients[,4]
+GAM_NL_tot_var <- names(which(coef<0.05))
+dim_coef <- length (GAM_NL_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, GAM_NL_tot_var[i] , "+ ") }
+formule
+
+# extraction des coefficients significatifs
+coef<-GAM_NL_fin_sum$coefficients[,4]
+GAM_NL_fin_var <- names(which(coef<0.05))
+dim_coef <- length (GAM_NL_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, GAM_NL_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,549 @@
+---
+title: "Modèles 6 pays"
+author: "Nhu-Nguyen"
+date: "27 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+PACKAGES
+```{r}
+
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+library(caret)		
+library(questionr)
+
+library(ISLR)
+library(leaps)
+library(stargazer)
+library(ggplot2)
+
+```
+
+base et variables pour Arbre décision
+```{r}
+
+# sur base totale avec tous les pays, non centrée réduite
+don<-base_F_6P
+# head(don)
+# str(don)
+
+# definition variables Y
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+Y=don$Y
+
+head(don)
+str(don)
+
+
+```
+
+
+ARBRE DECISION
+sur la BASE TOTALE avec les 6 pays BE, DE, ES, FR, NL, UK
+
+
+
+K_fold avec k=10 (par défaut)
+```{r}
+
+total_tree_10<-rpart(Y~.,data=don)
+total_tree_10
+prp(total_tree_10)               # A fast plot													
+fancyRpartPlot(total_tree_10)		# A fancy plot from rattle
+
+# rpart choisit l'arbre par validation croisée k-fold. Par défaut k=10. On peut spécifier k avec xval=k
+# si xval=nrow(don), c'est un LOOCV leave one out
+# on peut spécifier le nombre minimum de données dans un noeud avec minsplit=
+
+
+```
+
+Les groupes sont d'abord répartis par pays:
+- BE séparé des autres pays: 17%
+- groupe UK ES FR DE=66%
+- puis NL isolé: 17%
+
+Ensuite, le deuxième critère de séparation est t3, température retardée de 3 jours (>=12)
+
+Ensuite, c'est le mois de l'année:
+- eté: Aug,Jul,Jun,May,Sep=7%
+- Hiver: jan, fev, mars, avril, nov, dec=2%
+
+Et le teff >5.1:
+
+
+NB: 
+- les pays BE, DE et NL que nous retiendrons pour la suite de l'étude appartiennent à 3 groupes différents
+- il 'y a pas de séparation par les jours.
+
+
+```{r}
+plotcp(total_tree_10) 
+# graphe qui permet de choisir le nombre de feuilles qui minimise l'erreur. 
+# on prend le cp correspondant pour construire l'arbre final
+
+```
+
+ARBRE DECISION FINAL avec k=10
+```{r}
+total_tree_10f <-rpart(Y~.,data=don, cp=0.011)
+fancyRpartPlot(total_tree_10f)
+
+```
+
+
+
+
+ ARBRE DE DECISION PAR LOOCV avec xval=nrow(don) très long
+```{r}
+total_tree1<-rpart(Y~.,data=don, minsplit=5, xval=nrow(don)) 
+plotcp(total_tree1) 
+# graphe qui permet de choisir le nombre de feuilles qui minimise l'erreur. 
+# on prend le cp correspondant pour construire l'arbre final
+
+
+```
+
+ARBRE DECISION FINAL
+```{r}
+total_tree_final <-rpart(Y~.,data=don, minsplit=5, cp=0.011)
+fancyRpartPlot(total_tree_final)
+
+```
+
+
+================ MODELES SELECTION DE VARIABLES REGSUBSETS ===========================
+
+
+
+
+base et variables pour Selection de variable et les autrse modèles
+```{r}
+
+# sur base totale avec tous les pays, centrée réduite sans les autres variables meteo
+don<-base_F_6P_cr
+# head(don)
+# str(don)
+
+# creation des variables Y et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train 2/3 individus et test 1/3
+set.seed(1)
+dim<-nrow(don)
+train=sample(dim,2*dim/3,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+test=model.matrix(Y~.,data=don[-train,])# base de test
+
+p=ncol(don) # nombre de variables explicatives
+p
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET exhaustif à éviter
+```{r}
+
+# SELECTION EXHAUSTIVE: A EVITER car P GRAND !! (ici 27 variables trop grand)
+# Exhaustive search will be S L O W, must specify really.big=T
+# On va obtenir 2^p modeles comprenant entre une et p variables
+# par défaut, le nombre de variable est 8. Préciser le nombre de variables avec nvmax
+
+best_full_BE=regsubsets(Y~.,data=don[train,],nvmax=p,method='exhaustive')
+
+# choisir les meilleures variables: evaluer chacun des modeles sur le test set et calculer la MSE
+mse.full_BE=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_full_BE,id=i)
+  pred=test[,names(coefi)]%*%coefi
+  mse.full_BE[i]=mean((don$Y[-train]-pred)^2)
+}
+
+# plot les RMSE des modeles sur le training 
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(mse.full_BE),ylab='Root MSE des p modeles',pch=19,type='b')
+which.min(mse.full_BE) # ici, c'est le modèle à 12 variables (toutes les variables)
+
+# Pour acceder aux coefficient du modele avec la RMSE la plus petite, on appelle la fonction coeff
+# Pour acceder aux RSS des modeles, on lance la fonction summary
+coef(best_full,12)
+summary(best_full)$rss
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward
+```{r}
+
+# FORWARD SELECTION: NB pas assuré d'avoir le modèle optimal, mais possible si n<p
+
+best_fw_tot=regsubsets(Y~.,data=don[train,],nvmax=p,method='forward')
+fw_sum_tot<-summary(best_fw_tot)
+
+# pour chacun des modeles sur le test set, calculer la MSE
+mse.fw_tot=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_fw_tot,id=i)
+  pred=test[,names(coefi)]%*%coefi
+  mse.fw_tot[i]=mean((don$Y[-train]-pred)^2)
+}
+
+# on plot les RMSE des p modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(mse.fw_tot),ylab='Root MSE des p modeles FW', main="Regsubset forward sur tot",pch=19,type='b')
+ 
+
+
+```
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward résultats
+```{r}
+which.min(mse.fw_tot) # ici, c'est le modèle à 27 variables
+
+```
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward coef
+```{r}
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables)
+coef(best_fw_tot,27)
+
+
+```
+
+Les variables qui ont été sélectionnées sont Date + Temp + day_length + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + Pays + month + year + day + wday + quarter 
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward détails
+```{r}
+fw_sum_tot
+
+```
+
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET forward rss
+```{r}
+# Pour acceder aux RSS des modèles, on lance la fonction summary
+
+fw_sum_tot$rss
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET backward
+```{r}
+# selection variables BACKWARD: NB pas assuré d'avoir le modèle optimal,pas possible si n<p
+
+
+best_bw_tot=regsubsets(Y~.,data=don[train,],nvmax=p,method='backward')
+sum_bw_tot<-summary(best_bw_tot)
+
+# pour chacun des modeles sur le test set, calculer la MSE
+mse.bw_tot=rep(NA,p)
+for(i in 1:p){
+  coefi=coef(best_bw_tot,id=i)
+  pred=test[,names(coefi)]%*%coefi
+  mse.bw_tot[i]=mean((don$Y[-train]-pred)^2)
+}
+
+# on plot les RMSE des p modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set
+plot(sqrt(mse.bw_tot),ylab='Root MSE des p modeles',main="Regsubset backward sur tot",pch=19,type='b') 
+
+
+
+```
+
+SELECTION DE VARIABLES AVEC REGSUBSET backward résultats
+```{r}
+which.min(mse.fw_tot) #ici, c'est le modèle à 27 variables (toutes les variables)
+
+# si on veut un modèle sparse, on pourrait prendre celui à 6 variables car le MSE est quasi-stable à partir de 6
+
+```
+
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET backward coef
+```{r}
+
+# Pour acceder aux coefficient du meilleur modele (en renseignant le nb de variables à la place de 2)
+coef(best_bw_tot,27) 
+
+```
+
+es variables qui ont été sélectionnées sont Date + Temp + day_length + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + Pays + month + year + day + quarter 
+
+Par rapport à forward, il n'y a pas les variables t6 et wday
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET MSE
+```{r}
+# plot des RMSE pour les modèles FW et BW
+
+x=c(1:p)
+x
+y1=sqrt(mse.fw_tot)
+y2=sqrt(mse.bw_tot)
+plot(x, y1, type = "l", ylim = range(c(y1, y2)), xlab = "nb de variables", ylab = "root mse", main="FW (blue) et BW (red)")
+lines(x, y1, col = "blue")
+lines(x, y2, col = "red")
+
+
+```
+
+Les MSE avec backward sont plus faibles.
+
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET RSS
+```{r}
+
+# Pour acceder aux RSS des modeles, on lance la fonction summary
+# summary(best_full_tot)$rss 
+summary(best_fw_tot)$rss
+summary(best_bw_tot)$rss
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET plot BIC
+```{r}
+
+# choix des variables selon critères BIC, R² ajusté, Cp
+# graphe BIC autre: “Cp”, “adjr2”, “r2". classification des valeurs de BIC selon les modèles, en haut la plus petite valeur de BIC et en noir les variables inclusent dans le modèle
+# Le $R^2$ ajusté permet de déterminer à quel point le modèle ajuste vos données lorsque vous souhaitez l'ajuster en fonction du nombre de prédicteurs inclus. La valeur du $R^2$ ajusté intègre le nombre de prédicteurs dans le modèle elle donc plus adaptée pour nous aider à choisir le modèle.
+
+# graphe BIC
+plot(best_fw_tot, scale="bic", main=" BIC pour Regsubset tot FW") 
+
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET plot R²
+```{r}
+# graphe R² ajusté
+plot(best_fw_tot, scale="adjr2", main=" R² Ajuste pour Regsubset tot FW")
+
+ 
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET plot Cp
+```{r}
+
+
+# graphe Cp
+plot(best_fw_tot, scale="Cp", main=" Cp pour Regsubset tot FW")
+
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET comparaison BIC R² et Cp graphes
+```{r}
+
+
+# Afin de nous aider à choisir le modèle à sélectionner, identifiez l'emplacement du point maximum / minimum pour chaque critère : $RSS$, $R^2$ ajusté, $C_p$ et $BIC$. Dans chaque cas, afficher les variables sélectionnées.
+reg.summary<-summary(best_fw_tot)
+
+min.rss <- which.min(reg.summary$rss)
+max.adjr2 <- which.max(reg.summary$adjr2)
+min.cp <- which.min(reg.summary$cp)
+min.bic <- which.min(reg.summary$bic)
+min.rss
+max.adjr2
+min.cp
+min.bic # 14
+names(which(reg.summary$which[min.rss,]==TRUE))
+names(which(reg.summary$which[max.adjr2,]==TRUE))
+names(which(reg.summary$which[min.cp,]==TRUE))
+names(which(reg.summary$which[min.bic,]==TRUE))
+
+# Sur une même fenêtre graphique représenter les courbes des différents critère. Ajouter sur chaque courbe, le maximum/minimum correspondant.
+
+par(mfrow =c(2,2))
+plot(reg.summary$rss,xlab="Number of Variables",ylab="RSS",type="l")
+points(min.rss,reg.summary$rss[min.rss],col ="red",cex =2, pch =20)
+plot(reg.summary$adjr2,xlab="Number of Variables ",ylab="Adjusted RSq",type="l")
+points(max.adjr2,reg.summary$adjr2[max.adjr2],col ="red",cex =2, pch =20)
+plot(reg.summary$cp,xlab="Number of Variables ",ylab="Cp",type="l")
+points(min.cp,reg.summary$cp[min.cp],col ="red",cex =2, pch =20)
+plot(reg.summary$bic,xlab="Number of Variables ",ylab="BIC",type="l")
+points(min.bic,reg.summary$bic[min.bic],col ="red",cex =2, pch =20)
+
+```
+
+
+SELECTION DE VARIABLES AVEC REGSUBSET comparaison BIC R² et Cp résultats
+```{r}
+
+# C'est avec le critère BIC qu'on a le plus petit modèle
+min.bic # 17
+min.rss # 29
+max.adjr2 # 28
+min.cp # 25
+
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+SELECTION VARIABLES LASSO
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+OLS REGRESSION LINEAIRE
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+Sur l'ensemble de la base (avec tous les pays), les variables significatives sont celles de:
+- la température, ce qui est logique
+- des pays (UK, ES, FR, DE, BE): ce qui plaide pour un modèle par pays. A noter que le pays NL n'apparait pas
+- de certains mois: les mois d'hiver (novembre, décembre, février,janvier, mars) avec un coefficient positif et le mois de mai (moins significatif, avec un coefficient négatif)
+- de certains jours correspondant au week end (samedi et dimanche)
+
+NB: les températures retardées n'apparaissent pas
+
+Le graphe des résidus montre un structure, le modèle devrait pouvoir être amélioré.
+
+
+OLS RL
+
+```{r}
+
+# REGRESSION LINEAIRE SUR BASE TOTALE centrée réduite
+don=base_F_6P_cr
+head(don)
+
+# library
+library(stargazer)
+library(questionr)
+
+
+#-------------------------------------------------------------------
+# definition de Y variable a predire et X les variables explicatives
+#-------------------------------------------------------------------
+don <- rename.variable(don, "Conso", "Y")
+str(don)
+
+# creation des variables Y et X
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+
+# RL avec toutes les variables
+# R² ajusté =0.8642, F-Stat=1002 Residual standard error: 0.3686
+# variables significatives Temp, day_length, teff, seuil, T00,t1,t2,t3,t4,t5,Pays
+# certaines variables n'ont pas de coef (NA): weekend1, wday, quarter,season
+RL_F<-lm(Y~.,data=don)
+RL_F_sum<-summary(RL_F)
+RL_F_sum
+
+# sur la base totale, avec seulement les variables significatives Temp, day_length, teff, seuil, T00,t1,t2,t3,t4,t5,Pays
+# R² ajusté =0.86, F-Stat=3037 Residual standard error: 0.3743
+# le graphe des résidus vs fitted est très structuré, en 3 groupes distincts
+RL_F1<-lm(Y~Pays+Temp+day_length+teff+seuil+T00+t1+t2+t3+t4+t5,data=don)
+RL_F1_sum<-summary(RL_F1)
+RL_F1_sum
+plot(RL_F1) 
+
+#visualistion des résultats avec stargazer
+stargazer(RL1_F, type='text', flip=TRUE)
+
+
+```
+
+base_F_6P_cr tous les pays OLS RL avec interaction 
+```{r}
+# base_BE centrée réduite
+don<-base_F_6P_cr
+
+# renommer variable cible conso en Y
+library(questionr)
+don <- rename.variable(don, "Conso", "Y")
+str(don)
+
+
+# OLS AVEC INTERACTION entre la température et les autres variables
+# les variables significatives sont day_length + year leadholiddays + Temp+ month*Temp + year*Temp
+# R² ajusté à 0.09722, F-Stat à 14, residuak sd error à 0.9501
+# le graphe des résidus vs fitted reste très structuré, avec 3 groupes distincts
+RLI_F<-lm(Y~(cosinus + sinus + day_length + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays)*Temp,data=don) # équivalent à lm(Y~Date*Temp+mois*Temp+jour*Temp...)
+RLI_F_sum<-summary(RLI_F)
+RLI_F_sum
+mse_RLI_F= mean((Y-predict(RLI_F,don))^2, na.rm=TRUE)
+plot(RLI_F)
+
+
+# modèle OLS avec interaction avec seulement les variables significatives
+# R² ajusté à 0.0984, F-Stat à 24, residuak sd error à 0.9495
+# le graphe des résidus vs fitted reste très structuré, avec 3 groupes distincts
+RLI_F1<-lm(Y~ day_length + year + leadholidays + Temp + month*Temp + year*Temp,data=don) 
+RLI_F1_sum<-summary(RLI_F1)
+RLI_F1_sum
+mse_RLI_F1= mean((Y-predict(RLI_F1,don))^2, na.rm=TRUE)
+plot(RLI_F1)
+
+
+
+```
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+POLY
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+SPLINES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+GAM
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+RANDOM FOREST
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+SVR
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+
+
+
+

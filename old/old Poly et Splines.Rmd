@@ -1,0 +1,231 @@
+---
+title: "Polynomes Splines"
+author: "Nhu-Nguyen"
+date: "14 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+REGRESSION POLYNOMIALE ENTRE Y=CONSO ET X=METEO
+
+Avec la validation croisée train/test, on trouve que le degré du polynome qui présente la plus petite MSE est 5.
+La valeur de R² ajustée n'est cependant pas très élevée
+Adjusted R-squared:  0.08201 
+F-statistic: 124.3
+le graphe des résidus n'est pas satisfaisant
+
+
+Avec la validation croisée K-fold, l'erreur la plus petite est pour le polynome de degré 6
+Multiple R-squared:  0.08271,	Adjusted R-squared:  0.08192 
+F-statistic: 103.6 on 6 and 6892 DF,  p-value: < 2.2e-16
+
+
+```{r}
+
+library(glmnet)
+library(boot)
+
+# sur la base totale avec tous les pays
+don<-base.nona
+
+# definition variables Y et X
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+head(don)
+
+# regression polynomiale entre Y=conso et X=meteo
+Y=don$Y
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+head(donYX)
+
+# CROSS VALIDATION HOLD OUT TRAIN/TEST
+set.seed(1)
+d<-nrow(donYX)
+index<-sample(d,2*d/3)
+train=donYX[index,]
+test=donYX[-index,]
+
+d=10 # degré max de polynome à tester
+mse.poly=rep(NA,d)
+for(i in 1:d) {
+  model <- lm(formula=Y~poly(X,i, raw=T), data=train)
+  mse.poly[i] <- mean((test$Y-predict(model,test))^2)
+  }
+
+# plot les RMSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la RMSE la plus petite sur le test set, ici c'est pour le degré 5
+plot(sqrt(mse.poly),ylab="MSE", main='Root MSE selon le degré de polynome',pch=19,type='b')
+
+model.poly5 <- lm(formula=Y~poly(X,5, raw=T), data=don)
+sum.poly5<- summary(model.poly5)
+sum.poly5
+
+# le graphe des résidus vs fitted est très structuré, avec 3 groupes de données
+plot(model.poly5)
+
+
+# CROSS VALIDATION K.fold
+# # creation des variables Y cible et X explicative
+# Y=don$Y
+# X=don$meteo
+# donYX=data.frame(cbind(Y,X))
+# head(donYX)
+
+library(boot)
+k=10
+d=15
+set.seed(1)
+cv.error=as.vector(rep(0,d))
+for (i in 1:d){
+glm.fit<-glm(Y~poly(X,i),data = donYX)
+cv.error[i]<-cv.glm(donYX,glm.fit,K=10)$delta[1]
+}
+
+plot(cv.error, type="l")
+# ici c'est avec le degré 6 que l'erreur est la plus faible
+
+model.poly6 <- lm(formula=Y~poly(X,6, raw=T), data=don)
+sum.poly6<- summary(model.poly6)
+sum.poly6
+plot(model.poly6)
+
+
+# CROSS VALIDATION LOOCV leave one out !!!! TRES LONG
+Y=don$Y
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+head(donYX)
+
+library(boot)
+d=10 # degré de polynome 
+cv.error=rep(0,d)
+for (i in 1:d) { 
+  glm.fit=glm(Y~poly(X,i),data = donYX) 
+  cv.error[i]=cv.glm(donYX,glm.fit)$delta[1] # par défaut, K= nombre d'observations donc LOOCV
+}
+
+plot(cv.error, type="l") 
+
+# COMPARAISON DES MODELES
+# issu de la validation hold out train/test: degré 5
+model.poly5 <- lm(formula=Y~poly(X,5, raw=T), data=don)
+
+#issu de la validation k-fold
+model.poly6 <- lm(formula=Y~poly(X,6, raw=T), data=don)
+
+#comparaison des modèles
+# R² ajusté égaux à 0.082 et très faible
+# peu de différence dans le résidual sdt error à 147 647 984 et 147 655 685
+# F stat plus élevé pour le poly 5 que poly 6
+stargazer(model.poly5, model.poly6, type='text', flip=TRUE, title="Results", keep=c("Date"))
+
+
+```
+
+
+
+SPLINES sur base totale
+
+
+```{r}
+
+library(splines)
+
+# sur la base totale avec tous les pays
+don<-base.nona
+
+# definition variables Y et X
+library(questionr)
+don <- rename.variable(don, "conso", "Y")
+head(don)
+
+
+Y=don$Y # CONSO
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+str(donYX)
+
+set.seed(1)
+train=sample(nrow(donYX),2*nrow(donYX)/3)
+Y.train=Y[train]
+Y.test=Y[-train]
+X.test=X[-train]
+str(X.test)
+
+#basic splines bs, natural splines ns
+# noeuds=c(,)
+# l'option df produit des splines avec des noeuds placés sur les quantiles 25 50 et 75
+attr(bs(X,df=6),"knots") #donne le noeuds issus de df
+fit=lm(Y~bs(X,df=6), data=donYX[train,])
+pred=predict(fit, newdata=list(X=X.test), se=T)
+# names(pred) # fit"            "se.fit"         "df"             "residual.scale"
+# str(pred)
+
+# le graphe des résidus vs fitted est très structuré, avec 3 groupes distincts de données
+plot(fit)
+
+plot(X,Y, xlab = "meteo", ylab="Conso")
+
+plot(X.test,Y.test, xlab = "meteo", ylab="Conso") # on retrouve 3 groupes de données
+lines(X.test,pred$fit) # le prédictions n'ont été faites que pour le groupe intermédiaires
+
+
+```
+
+
+
+SPLINES SUR Belgique Conso en fonction de la température
+
+les résulats basic spline et natural spline sont très proches 
+- R² ajusté égaux à 0.906
+- F-stat très proches à 1234.926 et 1237.015
+
+```{r}
+
+library(questionr)
+base_BE <- rename.variable(base_BE, "conso", "Y")
+don<-base_BE
+
+library(splines)
+Y=don$Y 
+X=don$meteo
+donYX=data.frame(cbind(Y,X))
+str(donYX)
+nrow(donYX)
+
+set.seed(1)
+train=sample(nrow(donYX),2*nrow(donYX)/3)
+Y.train=Y[train]
+Y.test=Y[-train]
+X.test=X[-train]
+str(X.test)
+
+#basic splines bs
+# l'option df produit des splines avec des noeuds placés sur les quantiles 25 50 et 75
+attr(bs(X,df=6),"knots") #donne le noeuds issus de df
+fit_bs_BE=lm(Y~bs(X,df=6), data=donYX[train,])
+pred_bs_BE=predict(fit_bs_BE, newdata=list(X=X.test), se=T)
+
+
+#natural splines ns
+attr(ns(X,df=6),"knots") #donne le noeuds issus de df
+fit_ns_BE=lm(Y~ns(X,df=6), data=donYX[train,])
+pred_ns_BE=predict(fit_ns_BE, newdata=list(X=X.test), se=T)
+
+#comparaison des résultats entre basic et natural splines
+stargazer(fit_bs_BE, fit_ns_BE, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("bs", "ns"))
+
+# graphes
+plot(X.test,Y.test, xlab = "meteo", ylab="Conso")
+lines(X.test,pred_bs$fit, col="blue") 
+lines(X.test,pred_ns$fit, col="red") 
+
+```
+
+
+
+
