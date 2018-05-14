@@ -1,0 +1,327 @@
+---
+title: "Synthese NL Pays Bas"
+author: "Nhu-Nguyen Ngo"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+remplacer nom fichier
+remplacer title
+remplacer base: base_BEL_F par base_NL_F
+remplacer suffixe: _BE par _NL
+remplacer nom:  Belgique par Pays Bas
+
+
+# PACKAGES
+```{r}
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate)      # pour les dates
+library(dummies)        # création de variables dummies (pour bestglm)
+library(forecast)       # plot sympa des résidus
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps)          # regsubset
+
+
+# cross validation
+library(stats)          # fonction glm
+library(caret)
+
+# CLUSTERING
+library(cluster)
+library(fastcluster)
+
+
+# MODELES
+library(ISLR)
+library(glmnet)         # Poly, GAM
+library(boot)           # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071)          # SVR
+library(nnet)           # reseau neurones
+library(neuralnet)
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+
+```
+
+
+
+# BASE DE DONNEES ET FORMATAGE VARIABLES TRAIN TEST 
+```{r}
+
+# sur la base centrée réduite, sans les autres variables méteo
+don<-base_NL_F_cr
+head(don)
+
+# suppression des variales liées à la température teff, seuil, T00
+don<-don[,-which(colnames(don)== "teff")] 
+don<-don[,-which(colnames(don)== "seuil")] 
+don<-don[,-which(colnames(don)== "T00")] 
+head(don)
+
+# creation des variables Y (variable cible) et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+# variables pour modèles polynomial et splines
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train 2/3 individus et test 1/3
+set.seed(1)
+dim<-nrow(don)
+split=2/3
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+test=model.matrix(Y~.,data=don[-train,])# model matrice sur base de test
+
+Y.train=Y[train]
+X.train=X[train]
+Y.test=Y[-train]
+X.test=X[-train]
+don.train=don[train,]
+don.test=don[-train,]
+donYX.train=donYX[train,]
+donYX.test=donYX[-train,]
+
+names(don)
+
+```
+
+
+#SELECTION VARIABLES 
+```{r}
+
+# 27 variables: Date + Temp + cosinus + sinus + day_length + teff + seuil + T00 + month + year + day + weekend + wday + quarter + season + holidays + jc + lagholidays + leadholidays + t1 + t2 + t3 + t4 + t5 + t6 + t7
+
+# variables liées à la température : Temp + teff + seuil + T00 + t1 + t2 + t3 + t4 + t5 + t6 + t7
+
+
+# REGSUBSET forward
+# variables sélectionnées par regsubset forward MSE: Temp + cosinus + sinus + day_length + teff + t1 + t3 + t4 + t5 + t7 + Date + month + year + day + lagholidays + leadholidays + seuil + wday + quarter + season
+
+# variables sélectionnées par regsubset FW BIC: 
+# cosinus + sinus + day_length + teff + t1 + t5 + month + wday + leadholidays + quarter + season
+
+
+
+# REGSUBSET backward
+# variables sélectionnées par regsubset backward MSE: 
+# Temp + cosinus + sinus + day_length + t1 + t4 + t5 + t7 + month + year + day + quarter + season 
+
+ 
+# variables sélectionnées par regsubset BW BIC: cosinus + sinus + day_length + t1 + t5 + month + day + quarter + season
+
+ 
+# COMPILATION des variables sélectionnées par regsubset : 
+# Temp + cosinus + sinus + day_length + teff + t1 + t3 + t4 + t5 + t7 + Date + month + year + day + lagholidays + leadholidays + seuil + wday + quarter + season
+
+```
+
+
+
+
+# MODELES
+```{r}
+
+# ----- MODELE LINEAIRE 
+# modèle retenu par minimisation MSE: tot
+RL_NL <- lm(Y ~ ., data = don.train)
+pred_RL_NL=predict(RL_NL, newdata=don.test, se=T)
+MSE_RL_NL= mean((Y.test-predict(RL_NL,don.test))^2)
+
+
+
+# ----- modèle linéaire avec interaction sur Temp 
+# modèle retenu par minimisation MSE: step
+RLI_NL=lm(formula = Y ~ Date + cosinus + sinus + day_length + teff + T00 + year + day + jc + lagholidays + leadholidays + Temp + Date:Temp + cosinus:Temp + sinus:Temp + day_length:Temp +     teff:Temp + T00:Temp + year:Temp + day:Temp, data = don.train)   
+pred_RLI_NL=predict(RLI_NL, newdata=don.test, se=T)
+MSE_RLI_NL= mean((Y.test-predict(RLI_NL,don.test))^2)
+
+
+
+# ----- modèle linéaire avec interaction multiples sur les variables liées à la température (Temp, teff, seuil, T00 et t1 à t7)
+# modèle retenu par minimisation MSE: fin
+RLI_NL_multi <-lm(Y~ month + jc +  lagholidays +  leadholidays +  t2 + Date:t2 +  month:T00 +  month:t1 +  month:t2 +  month:t4 +  year:t2 + year:t6 +  day:Temp + day:teff +  day:t1 +  day:t2 +  jc:Temp +  jc:teff +  jc:t1, data=don.train) 
+pred_RLI_NL_multi=predict(RLI_NL_multi, newdata=don.test, se=T)
+MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
+
+
+
+# ----- modèle linéaire avec interaction sur poly(Temp,2) retenu par minimisation MSE
+# modèle retenu par minimisation MSE : step
+RLI_NL_P2<-lm(formula = Y ~ Date + cosinus + sinus + day_length + teff + month + year + day + jc + lagholidays + leadholidays + I(poly(Temp, 2)) + cosinus:I(poly(Temp, 2)) + sinus:I(poly(Temp, 2)) +  day_length:I(poly(Temp, 2)) + teff:I(poly(Temp, 2)) + month:I(poly(Temp, 2)) + jc:I(poly(Temp, 2)), data = don.train)
+pred_RLI_NL_P2=predict(RLI_NL_P2, newdata=don.test, se=T)
+MSE_RLI_NL_P2= mean((Y.test-predict(RLI_NL_P2,don.test))^2)
+
+
+
+
+# ----- MODELE POLYNOMIAL
+# poly sur le critère du MSE,issu de la validation hold out train/test et k_folds
+# modèle retenu par minimisation MSE : hold out
+POLY_NL<- lm(formula=Y~poly(X,which.min(err_poly_NL_HO), raw=T), data=donYX.train)
+pred_POLY_NL=predict(POLY_NL, newdata=donYX.test, se=T) # length 383
+MSE_POLY_NL= mean((Y.test-predict(POLY_NL,donYX.test))^2)
+length(pred_POLY_NL$fit)
+
+
+
+
+# ----- MODELE SPLINES
+# modèle spline,CV pour choisir nombre de noeuds et natural splins vs basic splines
+SP_NL <- lm(Y~bs(X,df=which.min(MSE_SP_NL_bs)+3), data=donYX.train)
+pred_SP_NL=predict(SP_NL, newdata=donYX.test, se=T)
+MSE_SP_NL= mean((Y.test-predict(SP_NL,donYX.test))^2)
+
+
+
+
+# ----- MODELE GAM
+# modèle GAM retenu par MSE : 
+GAM_NL=lm(formula = Y ~ poly(Temp, which.min(GAM_NL_deg)) + Date + cosinus + sinus + day_length + month + year + day + jc +     lagholidays + leadholidays + teff + T00 + t2 + t4 + t6 + t7, data = don.train) 
+pred_GAM_NL=predict(GAM_NL, newdata=don.test, se=T)
+MSE_GAM_NL= mean((Y.test-predict(GAM_NL,don.test))^2)
+
+
+
+
+# ----- MODELE RANDOM FOREST
+# Random Forest , avec mtry et ntree choisis par CV hold out
+RF_NL<-randomForest(Y~., mtry = RF_NL_mtry, ntree= RF_NL_ntree, nodesize = RF_NL_node ,data=don.train)
+pred_RF_NL = predict(RF_NL, don.test)
+MSE_RF_NL= mean((Y.test-predict(RF_NL,don.test))^2)
+
+
+
+
+# ----- MODELE SVR
+SVR_NL = svm(Y~.,don.train)
+pred_SVR_NL = predict(SVR_NL, don.test)
+MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
+
+
+# ----- MODELE RESEAUX NEURONES
+# détermination par CV de size (5) et decay (0.1)
+NN_NL <- NN_NL_tot$finalModel
+NN_NL_pred <- predict(NN_NL, newdata = don.test)
+MSE_NN_NL <- sqrt(mean((NN_NL_pred - don.test$Y)^2)) 
+
+
+```
+
+
+# SYNTHESE DES MODELES objet RF et SVR pas reconnu par stargazer
+```{r}
+
+stargazer(RL_NL, RLI_NL, RLI_NL_multi,RLI_NL_P2 ,POLY_NL, SP_NL, GAM_NL, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("RL", "RLI", "multi","P2","poly","Spline" ,"GAM"), model.names = TRUE, single.row = TRUE)
+
+# le R² ajusté est le plus élevé pour RLI P2 et le plus faible pour Poly et Spline
+# le residual error est le plus faible pour RLI P2  et le plus élevé pour poly et Spline
+# F-stat est le plus élevé pour Spline et le plus faible pour RLI multi
+
+```
+
+
+# MSE plot
+```{r}
+
+
+# comparaison des MSE entre les modèles RL, RLI, Poly, Spline, GAM, SVR
+MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL, MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM", "RF", "SVR", "NN"), at = graph)
+
+```
+
+# MSE minimal
+```{r}
+which.min(MSE_NL_tot) # c'est le modèle RLI qui présente la plus petite MSE
+```
+
+# MSE meilleurs modèles plot
+```{r}
+
+# comparaison des MSE entre les meilleurs modèles 
+MSE_NL_r=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL, MSE_RF_NL, MSE_SVR_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
+axis(1, labels=c("RL", "RLI","multi", "GAM", "RF", "SVR"), at = graph)
+
+```
+
+
+
+
+
+# graphe des valeurs prédites selon les modèles
+```{r}
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles" )
+lines(don.test$Date,pred_RL_NL$fit, col="purple") 
+lines(don.test$Date,pred_RLI_NL_multi$fit, col="cyan") 
+lines(don.test$Date,pred_GAM_NL$fit, col="yellow") 
+lines(don.test$Date, pred_SVR_NL, col="blue") 
+lines(don.test$Date, pred_RF_NL, col="red") 
+lines(don.test$Date,pred_POLY_NL$fit, col="pink") 
+lines(don.test$Date,pred_SP_NL$fit, col="green") 
+lines(don.test$Date,pred_RLI_NL$fit, col="orange") 
+
+```
+
+```{r}
+# graphes avec les 3 meilleurs modèles RLI, Multi, RF
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles RLI(orange) Multi (cyan) RF(red)" )
+lines(don.test$Date,pred_RLI_NL$fit, col="orange") 
+lines(don.test$Date,pred_RLI_NL_multi$fit, col="cyan") 
+lines (don.test$Date, pred_RF_NL, col="red") 
+
+
+
+```
+
+
+```{r}
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles RLI(orange)" )
+lines(don.test$Date,pred_RLI_NL$fit, col="orange") 
+
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles multi(cyan)" )
+lines(don.test$Date,pred_RLI_NL_multi$fit, col="cyan") 
+
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles RF (red)" )
+lines(don.test$Date, pred_RF_NL, col="red") 
+
+```
+
+
+
