@@ -51,9 +51,9 @@ fluidRow(
       column(width = 4,
              box(selectInput("forecast", "Choix du modéle de prédiction:",
                              c("Random Forest" = "RF",
-                                "GAM" = "GAM"
-                               #,
-                               # "ARIMA" = "ARIMA",
+                                "GAM" = "GAM",
+                                "SVR" = "svr",
+                                "ARIMA" = "ARIMA"
                                # "Mean Forecasting" = "fit_meanf",
                                # "Naive Forecasting" = "fit_naive",
                                # "Seasonal Naive Forecasting" = "fit_snaive",
@@ -77,24 +77,33 @@ server <- function(input, output) {
 output$forecast_plots <- renderPlotly({
      if (input$forecast == "RF") {
        ggplot() +
-         geom_line(aes(x = don.test$Date, y = Y.test),
-                   colour = 'red') +
+         geom_line(aes(x = don.test$Date, y =don.test$Y),
+                    colour = 'red') +
          geom_line(aes(x = don.test$Date, y = RF_NL_fin_pred),
                    colour = 'blue') +
          ggtitle('Random Forest Regression, en bleu prédiction') +
          xlab('date') +
          ylab('conso')
+       
      } else if (input$forecast == "GAM") {
        ggplot() +
-         geom_line(aes(x = don.test$Date, y = Y.test),
+         geom_line(aes(x = don$Date, y = don$Y),
                    colour = 'red') +
          geom_line(aes(x = don.test$Date, y = pred_GAM_NL$fit),
                    colour = 'yellow') +
          ggtitle('GAM, en jaune prédiction') +
          xlab('date') +
          ylab('conso')
-      } 
-   
+    } else if (input$forecast == "svr") {
+    ggplot() +
+      geom_line(aes(x = don.test$Date, y = Y.test),
+                colour = 'red') +
+      geom_line(aes(x = don.test$Date, y = pred_SVR_NL),
+                colour = 'purple') +
+      ggtitle('GAM, en jaune prédiction') +
+      xlab('date') +
+      ylab('conso')
+  }
   } )
 # Affichage des residus
 output$checkresid_plots <- renderPlot({
@@ -104,6 +113,9 @@ output$checkresid_plots <- renderPlot({
     else if (input$forecast == "GAM") {
       checkresiduals(GAM_NL)
     }
+    else if (input$forecast == "svr") {
+      checkresiduals(res_SVR_NL)
+    }  
   
   })
 
@@ -116,6 +128,10 @@ output$MSE_plots <- renderPlot({
     axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM", "RF", "SVR", "NN"), at = graph)
   }
   else if (input$forecast == "GAM") {
+    barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
+    axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM", "RF", "SVR", "NN"), at = graph)
+  }
+  else if (input$forecast == "svr") {
     barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles",las=0)
     axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM", "RF", "SVR", "NN"), at = graph)
   }
