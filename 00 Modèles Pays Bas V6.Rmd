@@ -1,0 +1,1539 @@
+---
+title: "Modeles NL Pays Bas"
+author: "Nhu-Nguyen Ngo"
+date: "27 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+remplacer nom fichier
+remplacer title
+remplacer base: base_NL_F par base_NL_F
+remplacer suffixe: _NL par _NL
+remplacer nom:  Pays Bas par Pays Bas
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# PACKAGES BASE ET VARIABLES
+
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+```{r}
+
+
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate) # pour les dates
+library(dummies) # création de variables dummies (pour bestglm)
+
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps) # regsubset
+
+
+# cross validation
+library(stats) # fonction glm
+
+
+# CLUSTERING
+library(stats) # fonction glm
+library(cluster)
+library(fastcluster)
+
+
+# MODELES
+library(caret)		
+library(ISLR)
+library(glmnet) # Poly, GAM
+library(boot) # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071) # SVR
+
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+
+```
+
+
+# BASE DONNEES OLS SANS les variables liées à Temp: TEFF T00 SEUIL
+```{r}
+
+
+# sur la base centrée réduite, sans les autres variables méteo, en enlevant 14 jours pour la pr?diction finale
+don <- base_NL_F_cr
+
+
+# suppression des variales liées à la température teff, seuil, T00
+don<-don[,-which(colnames(don)== "teff")] 
+don<-don[,-which(colnames(don)== "seuil")] 
+don<-don[,-which(colnames(don)== "T00")] 
+head(don)
+
+# creation des variables Y (variable cible) et X
+don<- rename.variable(don, "Conso", "Y")
+
+# variables pour modèles polynomial et splines
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train 2/3 et test 1/3
+set.seed(1)
+dim<-nrow(don)
+split=2/3
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+
+test=model.matrix(Y~.,data=don[-train,])# model matrice sur base de test*
+Y.train=Y[train]
+X.train=X[train]
+Y.test=Y[-train]
+X.test=X[-train]
+don.train=don[train,]
+don.test=don[-train,]
+donYX.train=donYX[train,]
+donYX.test=donYX[-train,]
+
+names(don)
+dim(don)
+dim(don.train)
+dim(don.test)
+
+```
+
+
+Etude des correlations
+```{r}
+ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
+# variables quantitative
+don.quant <- don[, ind.quant]
+str(don.quant) # 12 variables dont 7 retardées
+
+
+# en enlevant la variable cible et les variables de températures retardées, qui sont forcément corrélées  :
+don.quant <- don.quant[, 2:5]
+cor_NL <- cor(don.quant)
+# cor_NL
+
+library(PerformanceAnalytics)
+chart.Correlation(don[,1:5], histogram=TRUE, pch=19)
+
+# il existe une relation linéaire entre Y et Temp donc une régression linéaire a du sens
+# Il y a de fortes corrélations entre les variables Temp, cosinus, sinus et day_length
+# donc dans les régressions linéaires, nous conserverons seulement Temp comme variables numériques
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES OLS SANS INTERACTION
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+## RL SANS INTERACTION total avec toutes les variables résultats
+```{r}
+
+# OLS sans interaction sur base centrée réduite
+# modèle linéaire simple sur Y, avec Temp et toutes les variables liées à Date
+# -> message prediction from a rank-deficient fit may be misleading
+# suppression des variables corrélées pour ne garder que month, year, date
+
+RL_NL_tot<-lm(Y ~ Temp + month + year + day,data=don.train)
+RL_NL_tot_sum<-summary(RL_NL_tot)
+# RL_NL_tot_sum
+
+
+# extraction des coefficients significatifs
+coef<-RL_NL_tot_sum$coefficients[,4]
+RL_NL_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RL_NL_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RL_NL_tot_var[i] , "+ ") }
+formule
+
+```
+
+
+## RL SANS INTERACTION en ne gardant que les variables significatives
+```{r}
+
+
+# selection des variables significatives 
+RL_NL_fin<-lm(Y~  Temp + month + year + day, data=don.train) # identique à tot
+RL_NL_fin_sum<-summary(RL_NL_fin)
+# RL_NL_fin_sum
+
+# extraction des coefficients significatifs
+coef<-RL_NL_fin_sum$coefficients[,4]
+RL_NL_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RL_NL_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RL_NL_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+
+## RL SANS INTERACTION selection des variables par step
+```{r}
+RL_NL_step=step(RL_NL_tot, test="F", trace=FALSE)
+
+RL_NL_step
+
+
+```
+
+
+
+## RL SANS INTERACTION modèle issu de step
+```{r}
+RL_NL_step <- lm(Y ~ Temp + month + year + day, data = don.train) # identique à tot et fin
+
+```
+
+
+
+## modèle retenu
+```{r}
+# les 3 modèles sont identiques
+RL_NL <- RL_NL_tot
+
+```
+
+RL_NL plot residus
+```{r}
+# graphe résidus vs fitted avec une structure incurvée
+plot(RL_NL)
+
+```
+
+
+```{r}
+checkresiduals(RL_NL)
+# la distribution des résidus est centrée, proche de gaussienne
+
+```
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES AVEC INTERACTION avec la variable Temp
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+## RLI modèle total avec toutes les variables
+```{r}
+# OLS AVEC INTERACTION entre la température et toutes les autres variables 
+# -> message prediction from a rank-deficient fit may be misleading
+# enlever les variables dates corrélées pour ne garder que month, year, day
+
+RLI_NL_tot<-lm(Y~(month + year + day)*Temp ,data=don.train) 
+RLI_NL_tot_sum<-summary(RLI_NL_tot)
+# RLI_NL_tot_sum 
+
+
+# # extraction des coefficients significatifs
+coef<-RLI_NL_tot_sum$coefficients[,4]
+RLI_NL_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_tot_var[i] , "+ ") }
+formule
+
+```
+
+
+
+## RLI en ne gardant que les variables signficatives par itération jusqu'à stabilisation de formule
+```{r}
+
+RLI_NL_fin<-lm( Y~ month + year + day + month:Temp + year:Temp + day:Temp, data=don.train) # c'est le modèle tot
+RLI_NL_fin_sum<-summary(RLI_NL_fin)
+# RLI_NL_fin_sum 
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_fin_sum$coefficients[,4] 
+RLI_NL_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+## RLI selection des variables par step
+```{r}
+RLI_NL_step <- step(RLI_NL_tot, test="F",trace=FALSE)
+RLI_NL_step
+
+
+
+```
+
+# RLI modèle issu de step
+```{r}
+RLI_NL_step <-lm(formula = Y ~  month + year + day + Temp + month:Temp, data = don.train)
+
+```
+
+
+
+## comparaison MSE RLI tot, RLI fin, RLI step
+```{r}
+
+# modele lineaire total
+MSE_RLI_NL_tot= mean((Y.test-predict(RLI_NL_tot,don.test))^2)
+
+# modele lineaire en ne gardant que les variables significatives à la main
+MSE_RLI_NL_fin= mean((Y.test-predict(RLI_NL_fin,don.test))^2)
+
+# modele lineaire en ne gardant que les variables significatives par step
+MSE_RLI_NL_step= mean((Y.test-predict(RLI_NL_step,don.test))^2)
+
+# comparaison des MSE entre les modèles RL sans interaction
+MSE_RLI_NL=c(MSE_RLI_NL_tot, MSE_RLI_NL_fin, MSE_RLI_NL_step)
+which.min(MSE_RLI_NL) # c'est le modèle step qui présente la plus petite MSE
+
+
+# c'est le modèle tot qui a la plus petite MSE
+
+
+```
+
+```{r}
+# graphe des MSE
+graph<-barplot(MSE_RLI_NL, xlab="modèles", ylab="MSE", ylim = range(MSE_RLI_NL), main="MSE des modèles RLI",las=0)
+axis(1, labels=c("tot","fin","step"), at = graph)
+
+# les MSE sont assez proches
+diff_min_max_RLI_NL = (MSE_RLI_NL_step - MSE_RLI_NL_tot)/ MSE_RLI_NL_tot
+diff_min_max_RLI_NL # 3.3% d'écart
+
+```
+
+
+## RLI modèle retenu, résidus
+```{r}
+
+# modèle retenu : step
+RLI_NL <-RLI_NL_tot 
+# le graphe des résidus a moins de structure
+plot(RLI_NL)
+
+
+```
+
+```{r}
+checkresiduals(RLI_NL)
+# la distribution pas centrée, avec une queue à gauche
+
+```
+
+
+
+# MODELES  AVEC INTERACTIONs multiples en séparant les variables liées à la température des autres variables
+
+## RLI multi total avec toutes les variables
+```{r}
+
+RLI_NL_multi_tot<-lm(Y~(month + year + day)* (Temp + t1 + t2 + t3 + t4 + t5 + t6 + t7), data=don.train) 
+RLI_NL_multi_tot_sum<-summary(RLI_NL_multi_tot)
+# RLI_NL_multi_tot_sum
+
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_multi_tot_sum$coefficients[,4]
+RLI_NL_multi_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_multi_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_multi_tot_var[i] , "+ ") }
+formule
+
+```
+
+
+## RLI multi en ne gardant que les variables significatives par itération jusqu'à stabilisation de formule
+```{r}
+
+
+RLI_NL_multi_fin <- lm( Y~ month + year +  day +  Temp +  t1 +  t7 +  month:Temp +  month:t1 + month:t2 +  month:t3 + month:t4 +  month:t5 +  month:t7 +  year:t1 +  year:t2 +  year:t5 +  year:t6 +  year:t7, data=don.train) 
+RLI_NL_multi_fin_sum<-summary(RLI_NL_multi_fin)
+# RLI_NL_multi_fin_sum
+# MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_multi_fin_sum$coefficients[,4]
+RLI_NL_multi_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_multi_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_multi_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+
+## RLI multi modele issues de step ( long 7mn)
+```{r}
+
+RLI_NL_multi_step=step(RLI_NL_multi_tot, test="F", trace= FALSE)
+RLI_NL_multi_step
+
+```
+
+
+
+## OLS RLI multi modèle issu de step
+```{r}
+RLI_NL_multi_step <- lm ( Y ~  month + year + day + Temp + t1 + t2 + t3 + t4 + t5 + t6 + t7 + month:Temp + month:t1 + month:t2 + month:t3 + month:t4 + month:t5 + month:t7 + year:t1 + year:t2 + year:t3 + year:t5 + year:t6 + year:t7, data = don.train)
+
+
+```
+
+
+## OLS comparaison MSE RLI_multi tot, fin, step
+```{r}
+# modele lineaire total
+MSE_RLI_NL_multi_tot= mean((Y.test-predict(RLI_NL_multi_tot,don.test))^2)
+
+# modele lineaire en ne gardant que les variables significatives à la main
+MSE_RLI_NL_multi_fin= mean((Y.test-predict(RLI_NL_multi_fin,don.test))^2)
+
+# modele lineaire en ne gardant que les variables significatives par step
+MSE_RLI_NL_multi_step= mean((Y.test-predict(RLI_NL_multi_step,don.test))^2)
+
+# comparaison des MSE entre les modèles RL sans interaction
+MSE_RLI_NL_multi=c(MSE_RLI_NL_multi_tot, MSE_RLI_NL_multi_fin, MSE_RLI_NL_multi_step)
+which.min(MSE_RLI_NL_multi) 
+
+# c'est le modèle fin qui est retenu
+
+
+```
+
+
+```{r}
+# graphe des MSE
+graph<-barplot(MSE_RLI_NL_multi, xlab="modèles", ylab="MSE", ylim = range(MSE_RLI_NL_multi), main="MSE des modèles RLI multi",las=0)
+axis(1, labels=c("tot","fin","step"), at = graph)
+
+# les MSE sont assez proches
+diff_min_max_RLI_NL_multi = (MSE_RLI_NL_multi_tot - MSE_RLI_NL_multi_fin)/ MSE_RLI_NL_multi_fin
+diff_min_max_RLI_NL_multi # 4.5% d'écart
+
+```
+
+
+
+## OLS RLI multi, modèle retenu, graphe résidus
+```{r}
+
+# modèle retenu : 
+RLI_NL_multi <- RLI_NL_multi_fin
+
+# le graphe des résidus n'a plus de structure
+plot(RLI_NL_multi)
+
+
+```
+
+## OLS RLI multi autre plot résidus
+```{r}
+checkresiduals(RLI_NL_multi)
+# la distribution est mieux centrée, forme plus gaussienne
+
+```
+
+
+## OLS comparaison RL, RLI, RLI multi STATS
+```{r}
+# comparaison modèles linéaire sans et avec interaction:
+# R² ajusté plus élevé pour RLI multi
+# residual std error plus faible pour RLI multi
+# F-stat plus élevé pour pour RLI 
+stargazer(RL_NL, RLI_NL, RLI_NL_multi ,type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL","RLI", "multi"))
+
+
+
+```
+
+
+# MODELES AVEC INTERACTION SUR TEMP (poly 2)
+
+## OLS AVEC INTERACTION entre Temp (poly degré 2) modèle total
+```{r}
+
+RLI_NL_P2_tot<-lm(Y~ (month + year + day)*I(poly(Temp, 2)), data=don.train)
+RLI_NL_P2_tot_sum<-summary(RLI_NL_P2_tot)
+# RLI_NL_P2_tot_sum
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_P2_tot_sum$coefficients[,4]
+RLI_NL_P2_tot_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_P2_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_P2_tot_var[i] , "+ ") }
+formule
+
+```
+
+
+## OLS AVEC INTERACTION  entre Temp (poly degré 2) en ne gardant que les variables significatives par itération jusqu'à stabilisation de formule 
+```{r}
+
+
+RLI_NL_P2_fin <- lm( Y~ month + year +  day +  I(poly(Temp, 2)) + month:I(poly(Temp, 2)) + day:I(poly(Temp, 2)), data=don.train) 
+RLI_NL_P2_fin_sum<-summary(RLI_NL_P2_fin)
+
+
+# extraction des coefficients significatifs
+coef<-RLI_NL_P2_fin_sum$coefficients[,4]
+RLI_NL_P2_fin_var <- names(which(coef<0.05))
+dim_coef <- length (RLI_NL_P2_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, RLI_NL_P2_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+
+OLS AVEC INTERACTION entre Temp (poly degré 2) selection de variables par step
+```{r}
+RLI_NL_P2_step <- step(RLI_NL_P2_tot, test="F", trace = FALSE)
+RLI_NL_P2_step
+
+
+```
+
+## OLS AVEC INTERACTION entre Temp (poly degré 2) modèle issu de step 
+```{r}
+RLI_NL_P2_step<-lm(formula = Y ~  month + year + day + I(poly(Temp, 2)) + month:I(poly(Temp, 2)), data = don.train)
+
+
+```
+
+
+## comparaison RLI_P2 tot, fin et step
+```{r}
+
+# modele lineaire en ne gardant que les variables significatives à la main
+MSE_RLI_NL_P2_tot= mean((Y.test-predict(RLI_NL_P2_tot,don.test))^2)
+
+# modele lineaire avec interaction 
+MSE_RLI_NL_P2_fin= mean((Y.test-predict(RLI_NL_P2_fin,don.test))^2)
+
+# modele lineaire avec interaction multiple en ne gardant que les variables significatives à la main
+MSE_RLI_NL_P2_step= mean((Y.test-predict(RLI_NL_P2_step,don.test))^2)
+
+
+# comparaison des MSE entre les modèles RL, RLI, RLI multi
+MSE_RLI_NL_P2=c(MSE_RLI_NL_P2_tot, MSE_RLI_NL_P2_fin, MSE_RLI_NL_P2_step)
+
+
+which.min(MSE_RLI_NL_P2) 
+# c'est le modèle fin qui est retenu
+
+
+```
+
+```{r}
+
+# graphe des MSE
+graph<-barplot(MSE_RLI_NL_P2, xlab="modèles", ylab="MSE", ylim = range(MSE_RLI_NL_P2), main="MSE des modèles RLI",las=0)
+axis(1, labels=c("tot","fin","step"), at = graph)
+
+# les MSE sont très proches
+diff_min_max_RLI_NL_P2 = (MSE_RLI_NL_P2_step - MSE_RLI_NL_P2_fin)/ MSE_RLI_NL_P2_fin
+diff_min_max_RLI_NL_P2 # 2.7% d'écart
+
+```
+
+
+## modèle RLI_P2 final retenu par MSE et graphe résidus
+```{r}
+
+RLI_NL_P2 <- RLI_NL_P2_fin
+
+# le graphe des résidus n'a plus de structure incurvée
+plot(RLI_NL_P2)
+
+```
+
+
+```{r}
+checkresiduals(RLI_NL_P2)
+# la distribution  moins centrée avec pic au centre
+
+```
+
+
+
+## OLS comparaison modèles linéaire avec interaction simples et multiples avec les stats
+```{r}
+# les interactions améliorent les stat par rapport au modèle linéaire sans interaction
+# R² ajusté plus élevé pour RLI_multi (0.979 vs 0.942)
+# Residual std error le plus faible pour RLI_multi (0.45 vs 0.24)
+# F stat pllus élevé pour RLI
+stargazer(RL_NL, RLI_NL, RLI_NL_multi, RLI_NL_P2 ,type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL", "RLI","multi", "P2"))
+
+
+```
+
+## comparaison RL et RLI avec les MSE
+```{r}
+# modele lineaire 
+MSE_RL_NL= mean((Y.test-predict(RL_NL,don.test))^2)
+
+# modele lineaire avec interaction 
+MSE_RLI_NL= mean((Y.test-predict(RLI_NL,don.test))^2)
+
+# modele lineaire avec interaction multiple
+MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
+
+# modele lineaire avec interaction multiple en ne gardant que les variables significatives à la main
+MSE_RLI_NL_P2= mean((Y.test-predict(RLI_NL_P2,don.test))^2)
+
+
+# comparaison des MSE entre les modèles RL, RLI, RLI multi
+MSE_NL_RL=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi ,MSE_RLI_NL_P2)
+
+which.min(MSE_NL_RL)
+# c'est RLI_multi
+
+
+
+```
+
+## comparaison MSE RL et RLI avec MSE résultat
+
+```{r}
+# graphe des MSE
+graph<-barplot(MSE_NL_RL, xlab="modèles", ylab="MSE", main="MSE des modèles RL",las=0)
+axis(1, labels=c("RL","RLI","RLI_multi", "RLI_P2"), at = graph)
+
+```
+
+
+```{r}
+
+# graphe des MSE échelle réduite
+graph<-barplot(MSE_NL_RL, xlab="modèles", ylab="MSE", ylim = range(MSE_NL_RL) ,main="MSE des modèles RL",las=0)
+axis(1, labels=c("RL","RLI","RLI_multi", "RLI_P2"), at = graph)
+
+```
+
+
+```{r}
+
+# les écarts de MSE sont très grands : celui du max (RLI_P2) est 2.7x fois plus grand que celui du plus petit
+diff_min_max_RL_NL_all = (MSE_RLI_NL_P2 - MSE_RLI_NL_multi)/ MSE_RLI_NL_multi
+diff_min_max_RL_NL_all # 230%
+```
+
+
+```{r}
+checkresiduals(RL_NL)
+```
+
+```{r}
+checkresiduals(RLI_NL)
+```
+
+
+```{r}
+checkresiduals(RLI_NL_multi)
+```
+
+
+```{r}
+checkresiduals(RLI_NL_P2)
+
+```
+
+
+## Graphes modèles RL et RLI
+```{r}
+pred_RL_NL=predict(RL_NL, newdata=don.test, se=T)
+pred_RLI_NL=predict(RLI_NL, newdata=don.test, se=T)
+pred_RLI_NL_P2=predict(RLI_NL_P2, newdata=don.test, se=T)
+pred_RLI_NL_multi=predict(RLI_NL_multi, newdata=don.test, se=T)
+
+# graphe des valeurs prédites selon les modèles
+# plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèles RL et RLI Pays Bas" )
+# lines(don.test$Date,pred_RL_NL$fit, col="blue")
+# lines(don.test$Date,pred_RLI_NL$fit, col="red")
+# lines(don.test$Date,pred_RLI_NL_P2$fit, col="green")
+
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèle RL sur Pays Bas" )  # les valeurs extrèmes sont sous-estimées
+lines(don.test$Date,pred_RL_NL$fit, col="blue")
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèle RLI simple sur Pays Bas" )  # les valeurs extrèmes sont mieux prédites
+lines(don.test$Date,pred_RLI_NL$fit, col="red")
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèles RLI poly2 sur Pays Bas" )  # les valeurs extrèmes sont surestimées
+lines(don.test$Date,pred_RLI_NL_P2$fit, col="green")
+
+# graphe des valeurs prédites selon les modèles
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="modèle RLI multiple sur Pays Bas" )   # les valeurs extrèmes sont mieux prédites
+lines(don.test$Date,pred_RLI_NL_multi$fit, col="yellow")
+
+```
+
+
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES POLYNOMIAL
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+POLYNOME base et variables sur la base centrée réduite
+
+Modèles avec cible=Conso en fonction d'un polynome sur Temp
+
+## POLYNOME détermination du degré par cross validation hold out train / test
+```{r}
+
+d=20 # degré max de polynome à tester
+err_poly_NL_HO=rep(NA,d)
+for(i in 1:d) {
+  model <- lm(formula=Y~poly(X,i, raw=T), data=donYX.train)
+  err_poly_NL_HO[i] <- mean((Y.test-predict(model,donYX.test))^2)
+  }
+
+# plot les MSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la MSE la plus petite sur le test set
+plot(sqrt(err_poly_NL_HO),ylab="MSE", main=' MSE Pays Bas selon le degré de polynome',pch=19,type='b')
+
+
+```
+
+## POLYNOME détermination du degré par cross validation hold out resultats
+```{r}
+poly_NL_deg_HO=which.min(err_poly_NL_HO) 
+poly_NL_deg_HO
+# 5
+
+```
+
+
+## POLYNOME détermination du degré par cross validation hold out modèle retenu et résidus
+```{r}
+
+#modèle retenu par hold out
+poly_NL_HO<- lm(formula=Y~poly(X,which.min(err_poly_NL_HO), raw=T), data=donYX.train)
+poly_NL_HO_sum<- summary(poly_NL_HO)
+MSE_poly_NL_HO= mean((Y.test-predict(poly_NL_HO,donYX.test))^2)
+
+```
+
+
+## POLYNOME détermination du degré par cross validation K-fold 
+```{r}
+
+# # CROSS VALIDATION K.fold
+library(boot)
+k=10
+d=15
+set.seed(1)
+err_poly_NL_KF =as.vector(rep(0,d))
+for (i in 1:d){
+glm.fit<-glm(Y~poly(X,i),data = donYX.train)
+err_poly_NL_KF[i]<-cv.glm(donYX.test,glm.fit,K=10)$delta[1]
+}
+
+plot(err_poly_NL_KF, pch=19,type='b')
+
+```
+
+
+## POLYNOME détermination du degré par cross validation K-fold résulats
+```{r}
+poly_NL_deg_KF=which.min(err_poly_NL_KF) 
+poly_NL_deg_KF
+
+```
+
+
+## POLYNOME détermination du degré par cross validation K-fold modèle retenu
+```{r}
+
+#modèle retenu par K_fold
+poly_NL_KF<- lm(formula=Y~poly(X,which.min(err_poly_NL_KF), raw=T), data=donYX.train)
+MSE_poly_NL_KF= mean((Y.test-predict(poly_NL_KF,donYX.test))^2)
+
+
+```
+
+
+## comparaison poly hold out et K-Fold
+```{r}
+
+# COMPARAISON DES MODELES
+#modèle issu de CV hold out
+poly_NL_HO<- lm(formula=Y~poly(X,which.min(err_poly_NL_HO), raw=T), data=donYX.train)
+MSE_poly_NL_HO= mean((Y.test-predict(poly_NL_HO,donYX.test))^2)
+
+#modèle issu de CV K_fold
+poly_NL_KF<- lm(formula=Y~poly(X,which.min(err_poly_NL_KF), raw=T), data=donYX.train)
+MSE_poly_NL_KF= mean((Y.test-predict(poly_NL_KF,donYX.test))^2)
+
+#comparaison des modèles linéaire total avec poly
+# R² ajusté plus faible pour poly par rapport au modèle linéair
+# résidual sdt error plus élevé pour poly que dans RL 
+# F stat plus élevé pour les poly que pour modèle linéaire
+stargazer(RL_NL,poly_NL_HO, poly_NL_KF, type='text', flip=TRUE, title="Results", keep=c("Date"), column.labels = c("RL","polyHO", "polyKF"))
+
+
+
+```
+
+## choix du degré par MSE
+```{r}
+# en comparant les MSE, 
+POLY_NL_compar=c(MSE_poly_NL_HO, MSE_poly_NL_KF)
+which.min(POLY_NL_compar)
+# c'est celui par CV HO
+
+```
+
+## modèle poly retenu
+```{r}
+# nous retiendrons poly_NL_HO sur le critère du MSE
+poly_NL_deg = poly_NL_deg_HO
+POLY_NL<- poly_NL_HO
+POLY_NL_sum<- summary(POLY_NL)
+MSE_POLY_NL_tot= mean((Y.test-predict(POLY_NL,donYX.test))^2)
+
+```
+
+
+## modèle poly retenu résidus
+```{r}
+plot(POLY_NL)
+# il n'y a plus de structure incurvée de Residuals vs fitted
+
+```
+
+
+```{r}
+checkresiduals(POLY_NL)
+# la distribution ne semble pas être gaussienne
+
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES SPLINES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+SPLINE Conso en fonction de la température
+
+
+## SPLINES choix du degré de liberté/noeuds par CV hold out pour natural splines
+```{r}
+
+# CHOIX DU DEGRE DE LIBERTE df (et donc du nombre de noeuds) par cross validation HOLD OUT TRAIN/TEST 
+# l'option df produit des splines avec des noeuds placés sur les quantiles
+# on n'obtient pas les mêmes noeuds en bs et ns, pour un même degré de liberté
+# attr() pour avoir les noeuds issus de df
+
+# # noeuds avec basic splines
+# attr(bs(X,df=3),"knots") # pas de noeud
+# attr(bs(X,df=4),"knots") # un seul noeud à 50% = 2 intervalles + 2 frontières min et max
+# attr(bs(X,df=5),"knots") # 2 noeuds à 1/3 et 2/3 = 3 intervalles + 2 frontières min et max
+# attr(bs(X,df=6),"knots") # 3 noeuds à 25%, 50% et 75% = 4 intervalles + 2 frontières min et max
+# 
+# # noeuds avec natural splines
+# attr(ns(X,df=1),"knots") #  pas de noeud
+# attr(ns(X,df=2),"knots") #  un seul noeud à 50%
+# attr(ns(X,df=3),"knots") #  2 noeuds aux quantiles 33% (7.4) et 66% (13.7)
+# attr(ns(X,df=4),"knots") #  3 noeuds à 25% (5.8), 50% (10.2),75% (15.5)
+# attr(ns(X,df=5),"knots") #  4 noeuds à 20% (4.9), 40% (8.5),60% (12.2), 80% (16.5)
+
+
+# pour natural spline, recherche degré df qui minimise le MSE
+DF=15 # df max à tester
+MSE_SP_NL_ns=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(Temp,df=i), data=don.train)
+  MSE_SP_NL_ns[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+# plot les MSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la MSE la plus petite sur le test set
+plot(MSE_SP_NL_ns, ylab="MSE", main=' MSE Pays Bas selon le degré de liberté du spline',pch=19,type='b')
+
+SP_NL_df_ns=which.min(MSE_SP_NL_ns)
+SP_NL_df_ns
+# 3
+
+attr(ns(X,df=SP_NL_df_ns),"knots")
+# 2 noeuds
+
+```
+
+
+
+## SPLINES choix du degré de liberté/noeuds par CV hold out pour basic splines
+```{r}
+
+# pour basic spline, recherche degré df qui minimise le MSE 
+
+DF=15 # df max à tester
+MSE_SP_NL_bs=rep(0,DF)
+for(i in 4:DF) {
+  model <- lm(Y~bs(Temp,df=i), data=don.train)
+  MSE_SP_NL_bs[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+# plot les MSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la MSE la plus petite sur le test set
+plot(MSE_SP_NL_bs, ylab="MSE", main=' MSE selon le degré de liberté du spline', pch=19, type='b')
+
+SP_NL_df_bs = which.min(MSE_SP_NL_bs)+3 # le test démarre à df=4
+SP_NL_df_bs # 4
+
+attr(bs(X,df=SP_NL_df_bs),"knots")
+# 1 noeud
+
+```
+
+
+## SPLINES choix entre natural splines et basic splines par MSE 
+```{r}
+
+# CHOIX ENTRE BASIC SPLINES ET NATURAL SPLINES, celui qui minimise le MSE
+
+#natural splines ns
+# ns() ne marche que si les variables sont numériques. Les variables qualitatives seront transformées en dummy variables
+attr(ns(X,df=SP_NL_df_ns),"knots")  # 2 noeuds 
+fit_ns_NL_tot=lm(Y~ns(X,df=SP_NL_df_ns), data=donYX.train)
+MSE_SP_NL_ns <- mean((Y.test-predict(fit_ns_NL_tot,donYX.test))^2)
+
+#basic splines bs: on prend le df qui donne les mêmes noeuds que natural spline 
+attr(bs(X,df=SP_NL_df_bs),"knots") # 1 noeud
+fit_bs_NL_tot=lm(Y~bs(X,SP_NL_df_bs), data=donYX.train)
+MSE_SP_NL_bs <- mean((Y.test-predict(fit_bs_NL_tot,donYX.test))^2)
+
+
+SP_NL_compar=c(MSE_SP_NL_bs,MSE_SP_NL_ns)
+which.min(SP_NL_compar)
+# => avec les mse, on choisit ns
+
+
+```
+
+
+## SPLINES choix entre natural splines et basic splines par stats des modèles
+```{r}
+
+#comparaison des stats des résultats entre basic et natural splines
+# Le R² ajusté et residual std error sont égaux entre ns et bs
+stargazer(fit_bs_NL_tot, fit_ns_NL_tot, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("bs", "ns"))
+# => avec les stat des modèles, choix de ns car F-stat plus grand qu bs. 
+
+```
+
+
+## SPLINES choix entre natural splines et basic splines par CV hold out résultats et résidus
+```{r}
+
+# en minimisant MSE, on retient spline bs avec df=4 trouvé par cross validation hold out
+SP_NL_df= SP_NL_df_ns
+SP_NL <- lm ( Y~ ns(X, df = SP_NL_df), data=donYX.train) #  2 noeud 
+pred_SP_NL=predict ( SP_NL, newdata=donYX.test, se=T)
+MSE_SP_NL= mean( (Y.test-predict(SP_NL,donYX.test))^2 )
+plot(SP_NL) # graphe des résidus vs fitted n'a plus de structure incurvée
+
+
+```
+
+```{r}
+checkresiduals(SP_NL)
+# distribution pas vraiment gaussienne
+
+
+```
+
+
+## SPLINES graphes et smooting splines
+```{r}
+
+# graphes de conso vs température
+plot(X.test,Y.test, xlab = "Temp", ylab="Conso")
+points (X.test,pred_SP_NL$fit, col="blue") 
+
+# graphe de conso vs date
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="Spline Pays Bas, fit (bleu)" )
+lines(don.test$Date,pred_SP_NL$fit, col="blue") 
+
+
+# SMOOTHING SPLINE
+SM_NL=smooth.spline(Y.test,X.test,df=3) # on spécifie df=6 et le lambda est déterminé de sorte à obtenir df=6
+SM_NL_cv=smooth.spline(Y.test,X.test,cv=TRUE) # lambda est choisi par cross validation
+
+plot(SM_NL, main="smooth spline") 
+plot(SM_NL_cv, main="cv") 
+
+
+```
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES GAM
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+## GAM POLY; avec détermination du polynome par CV K-fold avec toutes les variables : 
+intialement avec toutes les variables, mais message erreur prediction from a rank-deficient fit may be misleading: cela amène a supprimer les variables liées aux vacances et jours fériés, pour ne garder que month, year, day
+
+```{r}
+# library(boot)
+
+d=15 # degré de poly à tester
+GAM_NL_POLY_error=rep(0,d)
+for (i in 1:d) { 
+  glm.fit= glm(Y~ poly(Temp,i) + month + year + day, data = don) 
+  GAM_NL_POLY_error[i]=cv.glm(don, glm.fit, K=10 )$delta[1] # par défaut, K= nombre d'observations donc LOOCV
+}
+
+plot(GAM_NL_POLY_error, main="GAM Pays Bas cv.error selon degré polynome",pch=19,type='b') 
+
+GAM_NL_POLY_deg = which.min(GAM_NL_POLY_error) 
+GAM_NL_POLY_deg
+# 4
+
+```
+
+## GAM POLY modèle retenu 
+```{r}
+
+# modèle GAM avec polynôme sur la température 
+GAM_NL_POLY_tot=glm(Y~ poly(Temp,GAM_NL_POLY_deg) + month + year + day, data = don.train) 
+GAM_NL_POLY_tot_sum <-summary(GAM_NL_POLY_tot)
+
+# extraction des coefficients significatifs
+coef<-GAM_NL_POLY_tot_sum$coefficients[,4]
+GAM_NL_POLY_tot_var <- names(which(coef<0.05))
+dim_coef <- length (GAM_NL_POLY_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, GAM_NL_POLY_tot_var[i] , "+ ") }
+formule
+
+```
+
+## GAM POLY avec variables significatives à la main, de façon itérative jusqu'à stabilisation de formule
+```{r}
+
+# modèle avec les variables significatives
+GAM_NL_POLY_fin=glm(Y~  poly(Temp, GAM_NL_POLY_deg) +  month + year + day, data = don.train) # fin et tot identiques
+GAM_NL_POLY_fin_sum <- summary (GAM_NL_POLY_fin)
+
+
+# extraction des coefficients significatifs
+coef<-GAM_NL_POLY_fin_sum$coefficients[,4]
+GAM_NL_POLY_fin_var <- names(which(coef<0.05))
+dim_coef <- length (GAM_NL_POLY_fin_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, GAM_NL_POLY_fin_var[i] , "+ ") }
+formule
+
+```
+
+
+## GAM POLY avec variables issues de step
+```{r}
+GAM_NL_POLY_step<-step(GAM_NL_POLY_tot, test="F", trace=FALSE) # step identique à tot et fin
+GAM_NL_POLY_step
+
+```
+
+
+## GAM POLY modèle retenu, résidus
+```{r}
+
+# modèle retenu : 
+GAM_NL_POLY <- GAM_NL_POLY_tot
+
+# le graphe des résidus est encore légèrement incurvé
+plot(GAM_NL_POLY)
+
+checkresiduals(GAM_NL_POLY)
+# peu d'autocorrélation, distribution pas centrée , presque gaussienne
+
+```
+
+
+
+## GAM POLY valeurs prédites
+```{r}
+pred_GAM_NL_POLY=predict(GAM_NL_POLY, newdata=don.test, se=T)
+# graphe des valeurs prédites par GAM sur la Pays Bas
+plot(don.test$Date, Y.test, xlab = "date", ylab="Conso", main="GAM" )
+lines(don.test$Date,pred_GAM_NL_POLY$fit, col="yellow")
+
+
+```
+
+
+
+## GAM SPLINE
+```{r}
+# pour natural spline, recherche degré df qui minimise le MSE
+DF=15 # df max à tester
+MSE_GAM_SP_NL_ns=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(Temp,df=i) + month + year + day, data=don.train)
+  MSE_GAM_SP_NL_ns[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+# plot les MSE des modeles sur le training et sur le test set
+# On choisit le modele qui a la MSE la plus petite sur le test set
+plot(MSE_GAM_SP_NL_ns, ylab="MSE", main=' MSE Pays Bas selon le degré de liberté du spline',pch=19,type='b')
+
+GAM_SP_NL_ns_df=which.min(MSE_GAM_SP_NL_ns)
+GAM_SP_NL_ns_df
+# 10
+
+attr(ns(X,df=GAM_SP_NL_ns_df),"knots")
+# 9 noeuds
+
+```
+
+```{r}
+# modèle GAM avec spline sur la température 
+GAM_NL_SP_tot=lm(Y~ns(Temp,df=GAM_SP_NL_ns_df) + month + year + day, data=don.train)
+GAM_NL_SP_tot_sum <-summary(GAM_NL_SP_tot)
+
+# extraction des coefficients significatifs
+coef<-GAM_NL_SP_tot_sum$coefficients[,4]
+GAM_NL_SP_tot_var <- names(which(coef<0.05))
+dim_coef <- length (GAM_NL_SP_tot_var)
+formule <- "Y ~ "
+for ( i in 1: dim_coef) { formule <- paste ( formule, GAM_NL_SP_tot_var[i] , "+ ") }
+formule # identique à tot
+
+```
+
+
+```{r}
+GAM_NL_SP_step<-step(GAM_NL_SP_tot, test="F", trace=FALSE) # step identique à tot et fin
+GAM_NL_SP_step
+
+```
+
+## GAM POLY modèle retenu, résidus
+```{r}
+
+# modèle retenu : 
+GAM_NL_SP <- GAM_NL_SP_tot
+
+# le graphe des résidus est encore légèrement incurvé
+plot(GAM_NL_SP)
+
+checkresiduals(GAM_NL_SP)
+# peu d'autocorrélation, distribution pas centrée , presque gaussienne
+
+```
+
+## comparaison GAM POLy et GAM SP
+```{r}
+# les MSE des 2 GAM ont l'air très proches:
+which.min(c(MSE_GAM_NL_POLY,MSE_GAM_NL_SP)) #  c'est GAM SP qui a la plus petite MSE
+
+100*(MSE_GAM_NL_POLY-MSE_GAM_NL_SP)/ MSE_GAM_NL_SP # l'écart est de 0.2%.
+
+# conclusion: pour les autres pays, on pourrait se contenter de fair GAM SP
+
+```
+
+
+```{r}
+stargazer(GAM_NL_POLY, GAM_NL_SP, type='text', flip=TRUE, title="comparaison GAM POLY et GAM SP", align=TRUE, column.labels = c("POLY", "SP"), keep = c("Date"), model.names = TRUE, single.row = TRUE)
+
+# les R² ajusté et residual sd error sont équivalents
+
+
+```
+
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES RANDOM FOREST
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+## RANDOM FOREST base et variables
+```{r}
+
+# on peut régler deux éléments : 
+# ntree: le nombre d’arbres construits par l’algorithme 
+# mtry: le nombre de variables testées à chaque division. 
+# la valeur par défaut de mtry correspond à la racine carrée du nombre de variables
+
+
+sqrt(ncol(don)) # = valeur mtry par défaut soit 5
+ncol(don) / 3
+
+
+```
+
+## RANDOM FOREST modelisation
+```{r}
+
+
+# modelisation sur train, par défaut ntree=500
+RF_NL<-randomForest(Y~., data=don.train)
+# summary(RF_NL_tot_train)
+print(RF_NL)
+# names(RF_NL_tot) 
+# "call"            "type"            "predicted"       "mse"             "rsq"            
+# "oob.times"       "importance"      "importanceSD"    "localImportance" "proximity"      
+# "ntree"           "mtry"            "forest"          "coefs"           "y"              
+# "test"            "inbag"           "terms" 
+
+```
+
+## RANDOM FOREST MSE plot
+```{r}
+
+# plot MSE selon le nombre d'arbres: la valeur de MSE baisse rapidement et stagne à partir de 100 environ
+plot(RF_NL$mse, xlab = "nombre d'arbres", ylab = "MSE")
+
+```
+
+## RANDOM FOREST choix de mtry par CV hold out (assez long)
+```{r}
+
+set.seed(1)
+m=15 # mtry max à tester. 
+MSE_RF_NL_mtry=rep(0,m)
+for(i in 1:m) {
+  set.seed(1)
+  model <- randomForest(Y~., data=don.train, mtry = i)
+  MSE_RF_NL_mtry[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+# graphe de MSE
+plot(MSE_RF_NL_mtry, xlab="mtry", ylab="MSE", main="MSE selon mtry", type="b")
+
+```
+
+## RANDOM FOREST choix de mtry par CV résultats
+```{r}
+
+RF_NL_mtry= which.min(MSE_RF_NL_mtry) 
+RF_NL_mtry
+  # 7
+
+```
+
+
+
+## RANDOM FOREST choix de ntree par CV
+```{r}
+
+
+Ntree=seq(100,1000,by=100)  # ntree à tester
+d=length(Ntree)
+nb=1 # nombre de tests de cross validation
+MSE_RF_NL_tree=rep(NA,d*nb)
+res_ntree=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+
+  for(i in 1:d) {
+    set.seed(1)
+    model <- randomForest(Y~., data=don.train, mtry = RF_NL_mtry, ntree=Ntree[i])
+    MSE_RF_NL_tree[i+j-1] <- mean((don.test$Y-predict(model,don.test))^2)
+  }
+
+  res_ntree[j]=Ntree[which.min(MSE_RF_NL_tree)]
+
+}
+
+res_ntree
+
+
+# graphe des MSE du choix de ntree
+RF_NL_ntree = Ntree[which.min(MSE_RF_NL_tree)] # 400
+RF_NL_ntree
+barplot(MSE_RF_NL_tree, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_NL_tree), main="MSE selon ntree")
+
+
+
+
+```
+
+## RANDOM FOREST choix de nodesize par CV 
+```{r}
+
+# CHOIX DE NODESIZE PAR CV HOLD OUT
+n_list=seq(from=1,to=10,by=1)  # nodesize à tester
+d=length(n_list)
+nb=1 # nombre de tests de cross validation
+MSE_RF_NL_node=rep(NA,d*nb)
+res_node=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+  
+  for(i in 1:d) {
+    set.seed(1)
+    model <- randomForest(Y~., data=don.train,mtry = which.min(MSE_RF_NL_mtry), ntree=RF_NL_ntree, nodesize = n_list[i])
+    MSE_RF_NL_node[i+j-1] <- mean((Y.test-predict(model,don.test))^2)
+    names(MSE_RF_NL_node)[i] <- paste(as.character(n_list[i]),"node",sep="_")
+  }
+
+  res_node[j]=n_list[which.min(MSE_RF_NL_node)]
+
+}
+
+res_node
+
+
+```
+
+
+
+## RANDOM FOREST choix de nodesize résultats
+```{r}
+
+# graphe des MSE du choix de nodesize
+RF_NL_node = which.min(MSE_RF_NL_node)
+
+# plot(MSE_RF_NL.tree, xlab="ntree", ylab="MSE", main="MSE selon ntree")
+
+
+barplot(MSE_RF_NL_node, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_NL_node) , names = names(MSE_RF_NL_node) ,main="MSE selon nodesize",las=0) 
+
+
+```
+
+## RANDOM FOREST modèle final
+```{r}
+RF_NL_fin<-randomForest(Y~., mtry = RF_NL_mtry, ntree=RF_NL_ntree, nodesize = RF_NL_node,data=don.train)
+
+```
+
+
+## RANDOM FOREST plot variables par importance
+```{r}
+
+varImpPlot(RF_NL_fin)
+
+```
+
+
+## RANDOM FOREST liste variable par importance
+```{r}
+
+RF_NL_fin$importance
+
+```
+
+## RANDOM FOREST liste variable par importance ordonnée
+```{r}
+RF_NL_fin$importance[order(RF_NL_fin$importance[, 1], decreasing = TRUE), ]
+
+
+```
+
+
+## RANDOM FOREST prediction
+```{r}
+
+# prediction
+RF_NL_fin_pred<-predict(RF_NL_fin,don.test)
+RF_NL_fin_pred_sum<-summary(RF_NL_fin_pred)
+# RF_NL_fin_pred_sum
+
+MSE_RF_NL_fin= mean((Y.test-predict(RF_NL_fin,don.test))^2)
+
+# plot des valeurs prédites vs valeurs réelles
+ggplot() +
+  geom_point(aes(x = don.test$Date, y = Y.test),
+             colour = 'red') +
+  geom_line(aes(x = don.test$Date, y = RF_NL_fin_pred),
+            colour = 'blue') +
+  ggtitle('Random Forest Regression, en bleu prédiction') +
+  xlab('date') +
+  ylab('conso')
+
+```
+
+```{r}
+# names(RF_NL_fin)
+# str(RF_NL_fin)
+
+res_RF_NL=don.test$Y-RF_NL_fin$predicted
+checkresiduals(res_RF_NL)
+# la saisonnalité n'a pas été bien captée: le graphe des résidus est sinusoidal
+
+```
+
+
+```{r}
+plot(RF_NL_fin$mse)
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# MODELES SVR
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+##SVR modelisation train/test
+```{r}
+
+# # train and test
+# # éviter les valeurs manquantes
+# set.seed(1)
+# split=sample.split(don$Y, SplitRatio=2/3)
+# don.train=subset(don,split==TRUE)
+# don.test=subset(don,split==FALSE)
+# Y.test=subset(don,split==FALSE)
+
+#Regression with SVM
+SVR_NL_tot = svm(Y~.,don.train)
+MSE_SVR_NL_tot= mean((Y.test-predict(SVR_NL_tot,don.test))^2)
+
+#Predict using SVM regression
+pred_SVR_NL = predict(SVR_NL_tot, don.test)
+
+#Overlay SVM Predictions on Scatter Plot
+plot(don.test$Date, Y.test)
+lines(don.test$Date, pred_SVR_NL, col="purple")
+
+
+
+```
+
+
+## SVR names
+```{r}
+# names(SVR_NL_tot)
+
+
+```
+
+
+##SVR residuals
+```{r}
+
+plot(SVR_NL_tot$residuals)
+
+
+```
+
+```{r}
+res_SVR_NL=don.test$Y-pred_SVR_NL
+checkresiduals(res_SVR_NL)
+# beaucoup d'autocorrélation, la distribution presque gaussienne mais pas centrée
+
+```
+
+
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# RESEAUX NEURONES
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+## modelisation CV
+```{r}
+
+# avec caret
+controlList <- trainControl(method = "cv", number = 5)
+tuneMatrix <- expand.grid(size = c(1, 2, 3, 4, 5, 6), decay = seq(from = 0, to = 0.5, by=0.1))
+
+set.seed(1)
+NN_NL_tot <- train(x = don.train[ , colnames(don.train) != "Y"],
+                   y = don.train[ , colnames(don.train) == "Y"],
+                   method = "nnet",
+                   linout = TRUE,
+                   trace = FALSE,
+                   maxit = 100,
+                   tuneGrid = tuneMatrix,
+                   trControl = controlList)
+
+  
+```
+
+
+## plot
+```{r}
+
+plot(NN_NL_tot)
+
+
+```
+
+## modèle final
+```{r}
+
+print(NN_NL_tot$finalModel)
+
+set.seed(1)
+NN_NL <- NN_NL_tot$finalModel
+pred_NN_NL <- predict(NN_NL, newdata = don.test)
+MSE_NN_NL <- mean((pred_NN_NL - don.test$Y)^2)
+
+```
+
+names
+```{r}
+# names(NN_NL_tot$finalModel)
+
+```
+
+## tune value
+```{r}
+tv=NN_NL_tot$finalModel$tuneValue
+str(tv)
+
+```
+
+
+## résidus
+```{r}
+res_NN_NL=Y.test-pred_NN_NL
+str(res_NN_NL) # liste avec 2 
+head(res_NN_NL)
+
+checkresiduals(res_NN_NL[,1])
+# la distribution n'est pas vraiment gaussienne
+
+
+```
+
+
+

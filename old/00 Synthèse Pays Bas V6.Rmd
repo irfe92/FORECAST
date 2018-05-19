@@ -1,0 +1,372 @@
+---
+title: "Synthese NL Pays Bas"
+author: "Nhu-Nguyen Ngo"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+remplacer nom fichier
+remplacer title
+remplacer base: base_NL_F
+remplacer suffixe: _NL
+remplacer nom: Pays Bas
+
+
+# PACKAGES
+```{r}
+
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate)      # pour les dates
+library(dummies)        # création de variables dummies (pour bestglm)
+library(forecast)       # plot sympa des résidus
+library(corrplot)       # plot de la matrice de corrélation
+library(PerformanceAnalytics)
+
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps)          # regsubset
+
+
+# cross validation
+library(stats)          # fonction glm
+library(caret)
+
+# CLUSTERING
+library(cluster)
+library(fastcluster)
+
+
+# MODELES
+library(ISLR)
+library(glmnet)         # Poly, GAM
+library(boot)           # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071)          # SVR
+library(nnet)           # reseau neurones
+library(neuralnet)
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+
+```
+
+
+
+# BASE DE DONNEES ET FORMATAGE VARIABLES TRAIN TEST 
+```{r}
+
+# sur la base centrée réduite, sans les autres variables méteo
+don <- base_NL_F_cr
+
+dim(don)
+
+# suppression des variales liées à la température teff, seuil, T00
+don<-don[,-which(colnames(don)== "teff")] 
+don<-don[,-which(colnames(don)== "seuil")] 
+don<-don[,-which(colnames(don)== "T00")] 
+head(don)
+
+# creation des variables Y (variable cible) et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+# variables pour modèles polynomial et splines
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train sur base compl?te sans les 14 derniers jours et test 1/3
+set.seed(1)
+dim<-nrow(don)
+split=2/3
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+test=model.matrix(Y~.,data=don[-train,])# model matrice sur base de test
+
+Y.train=Y[train]
+X.train=X[train]
+Y.test=Y[-train]
+X.test=X[-train]
+don.train=don[train,]
+don.test=don[-train,]
+donYX.train=donYX[train,]
+donYX.test=donYX[-train,]
+
+names(don)
+
+```
+
+ # étude de corrélations et sélection des variables 
+
+
+
+
+
+# MODELES
+```{r}
+
+
+# ----- MODELE OLS ---------------------------------------------------------
+
+# pour chaque modèle OLS:
+# 0- on ne garde que month, year, day comme variables date car les autres sont trop corrélées
+# 1- on estime le modèle avec toutes les variables (tot), le modèle en gardant à la main les variables significatives (fin) et le mdoèle issu de la sélection de variable step.
+# 2- on retient celui qui présente la plus petite MSE
+
+
+# SANS INTERACTION
+# modèle linéaire entre Y  et Temp et les variables month, year, day
+# modèle retenu: tot, fin et step sont identiques
+RL_NL <- lm(Y~  Temp + month + year + day, data=don.train)
+pred_RL_NL=predict(RL_NL, newdata=don.test, se=T)
+MSE_RL_NL= mean((Y.test-predict(RL_NL,don.test))^2)
+
+
+# AVEC INTERACTION
+# modèle linéaire avec interaction entre Temp et les variables month, year, day
+# modèle retenu: tot (fin identique à tpt)
+# écart min_max MSE= 3.3%
+RLI_NL <- lm(Y~(month + year + day)*Temp ,data=don.train)
+pred_RLI_NL=predict(RLI_NL, newdata=don.test, se=T)
+MSE_RLI_NL= mean((Y.test-predict(RLI_NL,don.test))^2)
+
+
+# modèle linéaire avec interaction multiples entre les variables (Temp  et ses lags t1 à t7) et les variables month, year, day
+# modèle retenu : step
+# écart min_max MSE= 4.5%
+RLI_NL_multi <- lm( Y~ month + year +  day +  Temp +  t1 +  t7 +  month:Temp +  month:t1 + month:t2 +  month:t3 + month:t4 +  month:t5 +  month:t7 +  year:t1 +  year:t2 +  year:t5 +  year:t6 +  year:t7, data=don.train) 
+pred_RLI_NL_multi=predict(RLI_NL_multi, newdata=don.test, se=T)
+MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
+
+
+# modèle linéaire avec interaction entre poly(Temp,2) et les autres variables
+# modèle retenu : fin
+# écart min_max MSE= 2.7%
+RLI_NL_P2<-lm( Y~ month + year +  day +  I(poly(Temp, 2)) + month:I(poly(Temp, 2)) + day:I(poly(Temp, 2)), data=don.train) 
+pred_RLI_NL_P2=predict(RLI_NL_P2, newdata=don.test, se=T)
+MSE_RLI_NL_P2= mean((Y.test-predict(RLI_NL_P2,don.test))^2)
+
+
+# de tous ces modèles OLS, c'est le RLI_multi qui présente la plus petite MSE et RLI_P2 qui présente la plus grande, avec un écart important (RLI_P2 2.3x foix plus grand que RLI_P2)
+
+# enseignements pour généraliser aux autres pays:
+# 1 - vu l'écart relativement faible de MSE entre tot, fin et step, on pourrait se contenter de faire tot
+# 2- vu l'écart important de MSE entre RLI_P2 avec les autres, on pourrait éviter de faire P2 pour les autres pays
+
+
+
+# ----- MODELE POLYNOMIAL SIMPLE ---------------------------------------------------------
+# Conso en fonction d'un polynome de Temp
+# choix du degré (5) du polynome choisi par CV (hold out et k_fold) en minimisant le MSE
+# modèle retenu par minimisation MSE : hold out
+POLY_NL<- lm(formula=Y~poly(X,poly_NL_deg, raw=T), data=donYX.train)
+pred_POLY_NL=predict(POLY_NL, newdata=donYX.test, se=T) # length 383
+MSE_POLY_NL= mean((Y.test-predict(POLY_NL,donYX.test))^2)
+
+
+
+
+# ----- MODELE SPLINES SIMPLE ---------------------------------------------------------
+# Conso en fonction d'un spline de Temp
+# CV pour choisir le degré de liberté (donc le nombre de noeuds) et choisir entre natural splins vs basic splines
+# modèle retenu: natural spline, df=3 (2 noeuds)
+SP_NL <- lm ( Y~ ns(X, df = SP_NL_df), data=donYX.train)
+pred_SP_NL=predict(SP_NL, newdata=donYX.test, se=T)
+MSE_SP_NL= mean((Y.test-predict(SP_NL,donYX.test))^2)
+
+
+
+
+# ----- MODELES GAM ---------------------------------------------------------
+# GAM_POLY: Conso en fonction d'un poly sur Temp et la somme des variables month, year, day
+# détermination du degré du polynome par CV hold out: 4
+# modèle GAM retenu par MSE : les modèles tot fin et step sont identiques 
+GAM_NL_POLY <-lm(formula = Y ~ poly(Temp, GAM_NL_POLY_deg) + month + year + day, data = don.train) 
+pred_GAM_NL_POLY=predict(GAM_NL_POLY, newdata=don.test, se=T)
+MSE_GAM_NL_POLY= mean((Y.test-predict(GAM_NL_POLY,don.test))^2)
+
+
+# GAM_Spline: Conso en fonction d'un spline sur Temp et la somme des variables month, year, day
+# détermination du degré/noeud du spline par CV hold out: 10 (9) noeuds)
+# modèle GAM retenu par MSE : les modèles tot fin et step sont identiques 
+GAM_NL_SP <-lm(Y~ns(Temp,df=GAM_SP_NL_ns_df) + month + year + day, data=don.train)
+pred_GAM_NL_SP=predict(GAM_NL_SP, newdata=don.test, se=T)
+MSE_GAM_NL_SP= mean((Y.test-predict(GAM_NL_SP,don.test))^2)
+
+# les MSE de GAM Poly et GAM SP sont très proches: l'écart est de 0.2%.
+# conclusion: pour les autres pays, on pourrait se contenter de fair GAM SP
+
+
+# ----- MODELE RANDOM FOREST ---------------------------------------------------------
+# Random Forest , avec mtry (7), ntree (400) et nodesize (5) choisis par CV hold out
+RF_NL<-randomForest(Y~., mtry = RF_NL_mtry, ntree= RF_NL_ntree, nodesize = RF_NL_node ,data=don.train)
+pred_RF_NL = predict(RF_NL, don.test)
+MSE_RF_NL= mean((Y.test-predict(RF_NL,don.test))^2)
+
+
+
+
+# ----- MODELE SVR
+SVR_NL = svm(Y~.,don.train)
+pred_SVR_NL = predict(SVR_NL, don.test)
+MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
+
+
+
+
+# ----- MODELE RESEAUX NEURONES
+# détermination par CV de size (5) et decay (0.3)
+NN_NL <- NN_NL_tot$finalModel
+NN_NL_pred <- predict(NN_NL, newdata = don.test)
+MSE_NN_NL <- sqrt(mean((NN_NL_pred - don.test$Y)^2)) 
+
+
+```
+
+
+SYNTHESE DES MODELES 
+
+
+# MSE plot
+```{r}
+
+
+# comparaison des MSE entre les modèles RL, RLI, Poly, Spline, GAM, SVR
+MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_POLY,MSE_GAM_NL_SP ,MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Pays Bas",las=0)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM_poly", "GAM_SP" ,"RF", "SVR", "NN"), at = graph)
+
+```
+
+# MSE minimal
+```{r}
+which.min(MSE_NL_tot) # c'est le modèle SVR qui présente la plus petite MSE
+```
+
+# MSE plots meilleurs modèles 
+```{r}
+
+# comparaison des MSE entre les meilleurs modèles, sans P2, Poly simple, Spline simple, NN
+MSE_NL_r=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL_POLY, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_SVR_NL, MSE_RL_NL) ,main="MSE des modèles", las=0)
+axis(1, labels=c("RL", "RLI","multi", "GAM_POLY","GAM_SP" ,"RF", "SVR"), at = graph)
+
+
+```
+
+```{r}
+# les MSE des 2 GAM ont l'air très proches:
+which.min(c(MSE_GAM_NL_POLY,MSE_GAM_NL_SP)) #  c'est GAM SP qui a la plus petite MSE
+
+100*(MSE_GAM_NL_POLY-MSE_GAM_NL_SP)/ MSE_GAM_NL_SP # l'écart est de 0.2%.
+
+# conclusion: pour les autres pays, on pourrait se contenter de fair GAM SP
+
+```
+
+
+objet RF et SVR pas reconnu par stargazer
+```{r}
+# on enlève RLI_P2 dont la MSE est plus de 2 fois suppérieure à celle des autres RL, ainsi que POLY et Splines simples
+stargazer(RL_NL, RLI_NL, RLI_NL_multi, RLI_NL_P2, GAM_NL_POLY, GAM_NL_SP, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("RL", "RLI", "multi","P2","gamP", "gamS"), keep = c("Date"), model.names = TRUE, single.row = TRUE)
+
+# le R² ajusté est le plus élevé pour RLI Multi
+# le residual error est le plus faible pour RLI Multi
+# F-stat est le plus élevé pour GAM_POLY
+
+```
+
+
+
+
+# graphe des valeurs prédites selon les modèles
+```{r}
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles" )
+lines(don.test$Date,pred_RL_NL$fit, col="purple") 
+lines(don.test$Date,pred_RLI_NL_multi$fit, col="cyan") 
+lines(don.test$Date,pred_GAM_NL_POLY$fit, col="yellow") 
+lines(don.test$Date,pred_GAM_NL_SP$fit, col="bisque")
+lines(don.test$Date, pred_SVR_NL, col="blue") 
+lines(don.test$Date, pred_RF_NL, col="red") 
+lines(don.test$Date,pred_POLY_NL$fit, col="pink") 
+lines(don.test$Date,pred_SP_NL$fit, col="green") 
+lines(don.test$Date,pred_RLI_NL$fit, col="orange") 
+
+```
+
+```{r}
+# graphes avec les 3 meilleurs modèles GAM, RF, SVR
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles GAM SP (bisque) RF (red) SVR (blue)" )
+lines(don.test$Date,pred_GAM_NL_SP$fit, col="bisque")
+lines(don.test$Date, pred_RF_NL, col="red") 
+lines(don.test$Date, pred_SVR_NL, col="blue")
+
+
+
+```
+
+
+```{r}
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles SVR (blue)" )
+lines(don.test$Date, pred_SVR_NL, col="blue")
+
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles RF (red)" )
+lines(don.test$Date, pred_RF_NL, col="red") 
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles GAM SP (bisque)" )
+lines(don.test$Date,pred_GAM_NL_SP$fit, col="bisque")
+
+
+```
+
+```{r}
+res_SVR_NL=don.test$Y-pred_SVR_NL
+checkresiduals(res_SVR_NL)
+# résidus moyens, avec quelques autocorrélations et une distribution, presque gaussienne mais non centrée, avec une queue à gauche
+
+```
+
+
+```{r}
+res_RF_NL=don.test$Y-RF_NL$predicted
+checkresiduals(res_RF_NL)
+# résidus pas bons, avec saisonnalité, beaucoup d'autocorrélation
+
+```
+
+
+```{r}
+checkresiduals(GAM_NL_SP)
+# résidus corrects, peu de saisonnalités, moins d'autocorrélation mais une distribution pas cetrée, avec une queue à gauche
+
+```
+
+
