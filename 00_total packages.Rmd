@@ -20,6 +20,8 @@ library(dplyr)
 library(lubridate)      # pour les dates
 library(dummies)        # création de variables dummies (pour bestglm)
 library(forecast)       # plot sympa des résidus
+library(corrplot)       # plot de la matrice de corrélation
+library(PerformanceAnalytics)
 
 # TREE
 library(rpart)				  # Popular decision tree algorithm
