@@ -23,27 +23,12 @@ load(file.choose()) # chargement de final.formats.Rdata avec les nouvelles varia
 
 base_F<-data.frame(final.formats)
 head(base_F)
-names(base_F)
-summary(base_F)
+# names(base_F)
+# summary(base_F)
 str(base_F)
 
 
 ```
-
-exportation base 
-```{r}
-
-write.table(base_F, "base_F.csv", sep = " ", dec = ",", row.names = FALSE, col.names = TRUE)
-write.table(final.formats, "final_format.csv", sep = " ", dec = ",", row.names = FALSE, col.names = TRUE)
-
-write.table(base_BE_F_cr, "base_BE_F_cr.csv", sep = " ", dec = ",", row.names = FALSE, col.names = TRUE)
-
-write.table(base_NL_F_cr, "base_NL_F_cr.csv", sep = " ", dec = ",", row.names = FALSE, col.names = TRUE)
-write.table(base_NL_F_am_cr, "base_NL_F_am_cr.csv", sep = " ", dec = ",", row.names = FALSE, col.names = TRUE)
-
-
-```
-
 
 
 
@@ -190,7 +175,7 @@ am=length(autre_meteo)
 vecteur_am=as.vector(rep(NA,am))
 for (i in 1:am) {vecteur_am[i]=which(colnames(base_F)==autre_meteo[i])}
 base_F_6P<-base_F[,-vecteur_am] # 6990 obs 27 variables
-summary(base_F_6P)
+# summary(base_F_6P)
 # suppresion des valeurs manquantes de la base 6 pays
 base_F_6P=na.omit(base_F_6P)  # 6922 obs 27 variables  
 
@@ -229,9 +214,9 @@ base_FR_F<-na.omit(base_FR_F) # 1504 observations 26 variable
                  
 
 # # base de travail DON avec les 6 pays et sans variables meteo autres que temp
-don<-base_F_6P
-dim(don)
-unique(don$Pays) # 6 pays NL UK ES FR DE BE
+# don<-base_F_6P
+# dim(don)
+# unique(don$Pays) # 6 pays NL UK ES FR DE BE
 
 
 
@@ -239,62 +224,44 @@ unique(don$Pays) # 6 pays NL UK ES FR DE BE
 ```
 
 
-
+fonction pour centrer réduire
 ```{r}
-#-----------------------------------------------------------------
-# centrer et reduire sur les variables numériques
-#-----------------------------------------------------------------
-library(questionr)
 
+fun_cr <- function (don) {
+  ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
+  ind.autres=!ind.quant
 
-# sur base totale
-don<-base_F_6P
-summary (don)
-str(don)
+  # variables quantitative
+  don.quant <- don[, ind.quant]
 
-ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
-ind.autres=!ind.quant
+  # variables autres
+  don.autres <- don[, ind.autres]
 
-# variables quantitative
-don.quant <- don[, ind.quant]
+  #centrer et reduire les variables numeriques
+  don.quant.cr<-scale(don.quant)
 
-# variables autres
-don.autres <- don[, ind.autres]
-
-#centrer et reduire les variables numeriques
-don.quant.cr<-scale(don.quant)
-
-#reformer la base complete don_cr centree et reduite 
-don_cr<-cbind(don.quant.cr,don.autres)
-summary(don_cr)
-
-
-base_F_6P_cr<-don_cr
-
-
+  #reformer la base complete don_cr centree et reduite 
+  don_cr<-cbind(don.quant.cr,don.autres)
+  
+  return(don_cr)
+}
 
 ```
 
 
+bases centrées réduites
 ```{r}
-# BASE PAR PAYS CENTREEE REDUITES
+base_F_6P_cr <- fun_cr(base_F_6P)
 
-# creation de sous base par pays, 
-base_BE_F_cr<-subset(base_F_6P_cr,Pays=="BE")
-base_DE_F_cr<-subset(base_F_6P_cr,Pays=="DE")
-base_NL_F_cr<-subset(base_F_6P_cr,Pays=="NL")
-base_UK_F_cr<-subset(base_F_6P_cr,Pays=="UK")
-base_ES_F_cr<-subset(base_F_6P_cr,Pays=="ES")
-base_FR_F_cr<-subset(base_F_6P_cr,Pays=="FR")
+base_BE_F_cr <- fun_cr(base_BE_F)
+base_DE_F_cr <- fun_cr(base_DE_F)
+base_ES_F_cr <- fun_cr(base_ES_F)
+base_FR_F_cr <- fun_cr(base_FR_F)
+base_NL_F_cr <- fun_cr(base_NL_F)
+base_UK_F_cr <- fun_cr(base_UK_F)
 
-# pour chaque base pays on enlève la variable Pays devenue inutile
-base_BE_F_cr<-base_BE_F_cr[,-which(colnames(base_BE_F_cr)=="Pays")] # 1160 OBS 26 VAR
-base_DE_F_cr<-base_DE_F_cr[,-which(colnames(base_DE_F_cr)=="Pays")] # 1158 OBS 26 VAR
-base_NL_F_cr<-base_NL_F_cr[,-which(colnames(base_NL_F_cr)=="Pays")] # 1159 OBS 26 VAR
-base_UK_F_cr<-base_UK_F_cr[,-which(colnames(base_UK_F_cr)=="Pays")] # 1153 OBS 26 VAR
-base_ES_F_cr<-base_ES_F_cr[,-which(colnames(base_ES_F_cr)=="Pays")] # 788 OBS 26 VAR
-base_FR_F_cr<-base_FR_F_cr[,-which(colnames(base_FR_F_cr)=="Pays")] # 1504 OBS 26 VAR
 
+summary(base_UK_F_cr)
 
 ```
 
@@ -303,271 +270,35 @@ base_FR_F_cr<-base_FR_F_cr[,-which(colnames(base_FR_F_cr)=="Pays")] # 1504 OBS 2
 bases AVEC les autres variables meteo (différentes de temperature)
 ```{r}
 
-# 5 variables météo autre que temp: "Wind_Speed"  "Cloud_covering"  "Solar_radiation"   "Raining_Level"   "Pressure"        " 
+# 5 variables météo autre que temp:
+#"Wind_Speed"  "Cloud_covering"  "Solar_radiation"   "Raining_Level"   "Pressure" 
 # les variables méteo autres que températures (wind, cloud, solar, rain, pressure) ne sont complètes que pour NL.
 # Pour BE, il y a wind, cloud, solar, rain mais pas pressure
 # elles sont manquantes pour DE, FR, UK, ES
 
+
 #pour NL, les variables méteo autres que températures (wind, cloud, solar, rain, pressure) sont complètes
 base_NL_F_am<-subset(base_F,Pays=="NL") # 1170 observations, 33 variables
-# pour chaque base pays on enlève la variable Pays devenue inutile
+# on enlève la variable Pays devenue inutile
 base_NL_F_am<-base_NL_F_am[,-which(colnames(base_NL_F_am)=="Pays")] # 1170 observations,32 variables
 # suppresion des valeurs manquantes de la base_NL_F: 
 base_NL_F_am=na.omit((base_NL_F_am)) # 1159 observations, 32 variables
-
+# base centrée réduite
+base_NL_F_am_cr <- fun_cr (base_NL_F_am)
 
 
 # Pour BE, il y a wind, cloud, solar, rain mais pas pressure: 1169 observations, 32 variables
 base_BE_F_am<-subset(base_F,Pays=="BE")
 base_BE_F_am<-base_BE_F_am[,-which(colnames(base_BE_F_am)=="Pressure")]
-summary(base_BE_F_am)
-# pour chaque base pays on enlève la variable Pays devenue inutile
+# summary(base_BE_F_am)
+# on enlève la variable Pays devenue inutile
 base_BE_F_am<-base_BE_F_am[,-which(colnames(base_BE_F_am)=="Pays")] # 1169 observations, 31 variables
 # suppresion des valeurs manquantes de la base_BE_F 1160 observations, 31 variables
 base_BE_F_am=na.omit((base_BE_F_am))
+# base centrée réduite
+base_BE_F_am_cr <- fun_cr (base_BE_F_am)
 
-```
-
-bases BE AVEC les autres variables meteo centrée réduite
-```{r}
-
-# sur base totale
-don<-base_BE_F_am
-# summary (don)
-# str(don)
-
-ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
-ind.autres=!ind.quant
-
-# variables quantitative
-don.quant <- don[, ind.quant]
-
-# variables autres
-don.autres <- don[, ind.autres]
-
-#centrer et reduire les variables numeriques
-don.quant.cr<-scale(don.quant)
-
-#reformer la base complete don_cr centree et reduite 
-don_cr<-cbind(don.quant.cr,don.autres)
-summary(don_cr)
-
-
-base_BE_F_am_cr<-don_cr
-
-
-```
-
-bases NL AVEC les autres variables meteo centrée réduite
-```{r}
-
-
-# sur base totale
-don<-base_NL_F_am
-# summary (don)
-# str(don)
-
-ind.quant <- sapply(don, function(x) is.numeric(x) | is.integer(x))
-ind.autres=!ind.quant
-
-# variables quantitative
-don.quant <- don[, ind.quant]
-
-# variables autres
-don.autres <- don[, ind.autres]
-
-#centrer et reduire les variables numeriques
-don.quant.cr<-scale(don.quant)
-
-#reformer la base complete don_cr centree et reduite 
-don_cr<-cbind(don.quant.cr,don.autres)
-summary(don_cr)
-
-
-base_NL_F_am_cr<-don_cr
-
-
-```
-
-
-
-PLOT TEMPERATURE VS DATE
-```{r}
-
-don<-base_F_6P
-
-# plot températures vs date
-plot(don$Date,don$Temp) # faire des lignes différentes par pays
-plot(don$Date,don$day_length) # faire des lignes différentes par pays
-
-library(lattice)
-Temp_BE=don$Temp[which(don$Pays=="BE")]
-Temp_DE=don$Temp[which(don$Pays=="DE")]
-Temp_NL=don$Temp[which(don$Pays=="NL")]
-Temp_FR=don$Temp[which(don$Pays=="FR")]
-Temp_ES=don$Temp[which(don$Pays=="ES")]
-Temp_UK=don$Temp[which(don$Pays=="UK")]
-
-date_BE=don$Date[which(don$Pays=="BE")]
-date_DE=don$Date[which(don$Pays=="DE")]
-date_NL=don$Date[which(don$Pays=="NL")]
-date_FR=don$Date[which(don$Pays=="FR")]
-date_ES=don$Date[which(don$Pays=="ES")]
-date_UK=don$Date[which(don$Pays=="UK")]
-
-plot(date_BE,Temp_BE, type = "l")
-lines(date_DE,Temp_DE, col="red")
-lines(date_NL,Temp_NL, col="green")
-lines(date_FR,Temp_FR, col="blue")
-lines(date_ES,Temp_ES, col="yellow") # température ES supérieure à celle des autres pays
-lines(date_UK,Temp_UK, col="pink")
-
-
-
-```
-
-```{r}
-# sur base centrée réduite
-
-don<-base_F_6P_cr
-dim(don)
-
-# # plot températures vs date
-# plot(don$Date,don$Temp) # faire des lignes différentes par pays
-# plot(don$Date,don$day_length) # faire des lignes différentes par pays
-
-library(lattice)
-Temp_BE_cr=don$Temp[which(don$Pays=="BE")]
-Temp_DE_cr=don$Temp[which(don$Pays=="DE")]
-Temp_NL_cr=don$Temp[which(don$Pays=="NL")]
-Temp_FR_cr=don$Temp[which(don$Pays=="FR")]
-Temp_ES_cr=don$Temp[which(don$Pays=="ES")]
-Temp_UK_cr=don$Temp[which(don$Pays=="UK")]
-
-date_BE_cr=don$Date[which(don$Pays=="BE")]
-date_DE_cr=don$Date[which(don$Pays=="DE")]
-date_NL_cr=don$Date[which(don$Pays=="NL")]
-date_FR_cr=don$Date[which(don$Pays=="FR")]
-date_ES_cr=don$Date[which(don$Pays=="ES")]
-date_UK_cr=don$Date[which(don$Pays=="UK")]
-
-plot(date_BE_cr,Temp_BE_cr, type = "l")
-lines(date_DE_cr,Temp_DE_cr, col="red")
-lines(date_NL_cr,Temp_NL_cr, col="green")
-lines(date_FR_cr,Temp_FR_cr, col="blue")
-lines(date_ES_cr,Temp_ES_cr, col="yellow") # température ES supérieure à celle des autres pays
-lines(date_UK_cr,Temp_UK_cr, col="pink")
-
-
-
-```
-
-GROUPE BE DE NL
-```{r}
-# groupe homogène en températures BE DE NL
-
-plot(date_BE,Temp_BE, type = "l")
-lines(date_DE,Temp_DE, col="red")
-lines(date_NL,Temp_NL, col="green")
-
-```
-
-```{r}
-# groupe homogène en températures BE DE NL centré réduit
-
-plot(date_BE_cr,Temp_BE_cr, type = "l")
-lines(date_DE_cr,Temp_DE_cr, col="red")
-lines(date_NL_cr,Temp_NL_cr, col="green")
-
-```
-
-GROUPE BE DE NL VS FR
-```{r}
-
-# comparaison groupe BE DE NL avec FR
-plot(date_BE,Temp_BE, type = "l")
-lines(date_DE,Temp_DE, col="red")
-lines(date_NL,Temp_NL, col="green")
-lines(date_FR,Temp_FR, col="blue") # température FR supérieure à celle des autres pays
-
-
-```
-
-```{r}
-# comparaison groupe BE DE NL avec FR centré réduit
-plot(date_BE_cr,Temp_BE_cr, type = "l")
-lines(date_DE_cr,Temp_DE_cr, col="red")
-lines(date_NL_cr,Temp_NL_cr, col="green")
-lines(date_FR_cr,Temp_FR_cr, col="blue") # température FR supérieure à celle des autres pays
-
-
-```
-
-GROUPE BE DE NL VS UK
-```{r}
-# comparaison groupe BE DE NL avec UK
-plot(date_BE,Temp_BE, type = "l")
-lines(date_DE,Temp_DE, col="red")
-lines(date_NL,Temp_NL, col="green")
-lines(date_UK,Temp_UK, col="pink") # UK amplitude moins forte
-
-```
-
-```{r}
-# comparaison groupe BE DE NL avec UK centré réduit
-plot(date_BE_cr,Temp_BE_cr, type = "l")
-lines(date_DE_cr,Temp_DE_cr, col="red")
-lines(date_NL_cr,Temp_NL_cr, col="green")
-lines(date_UK_cr,Temp_UK_cr, col="pink") # UK amplitude moins forte
-
-```
-
-GROUPE BE DE NL VS ES
-```{r}
-# comparaison groupe BE DE NL avec UK
-plot(date_BE,Temp_BE, type = "l")
-lines(date_DE,Temp_DE, col="red")
-lines(date_NL,Temp_NL, col="green")
-lines(date_ES,Temp_ES, col="yellow") # UK amplitude moins forte
-
-```
-
-```{r}
-# comparaison groupe BE DE NL avec UK centré réduit
-plot(date_BE_cr,Temp_BE_cr, type = "l")
-lines(date_DE_cr,Temp_DE_cr, col="red")
-lines(date_NL_cr,Temp_NL_cr, col="green")
-lines(date_ES_cr,Temp_ES_cr, col="yellow") # UK amplitude moins forte
-
-```
-
-```{r}
-library(ggplot2)
-don<-base_F_6P
-temp <- qplot(Pays, Temp, data = don, geom = "boxplot")
-temp
-
-```
-
-
-```{r}
-DL <- qplot(Pays, day_length, data = don, geom = "boxplot")
-DL
-
-```
-
-```{r}
-
-CS <- qplot(Pays, Conso, data = don, geom = "boxplot")
-CS
-
-```
-
-```{r}
-don<-base_F_6P_cr
-
-CS <- qplot(Pays, Conso, data = don, geom = "boxplot")
-CS
+summary(base_BE_F_am_cr)
 
 ```
 
