@@ -126,8 +126,18 @@ names(don)
 
 ```
 
-# étude de corrélations et sélection des variables 
+fonction mape Mean Absolute Percentage Error
 ```{r}
+# Y variable cible
+# model = fit du model
+# don.test : base de test
+
+fun_mape = function (Y,model, don.test) {
+  error <- Y-predict(model,don.test)
+  mape <- mean(abs(error/Y))*100
+  return(mape)
+}
+
 
 ```
 
@@ -142,6 +152,9 @@ names(don)
 RL_NL <- lm(Y~  Temp + month + year + day, data=don.train)
 pred_RL_NL=predict(RL_NL, newdata=don.test, se=T)
 MSE_RL_NL= mean((Y.test-predict(RL_NL,don.test))^2)
+MAPE_RL_NL = fun_mape(Y.test,RL_NL, don.test)
+
+
 
 # résidus
 plot(RL_NL)
@@ -154,6 +167,7 @@ checkresiduals(RL_NL)
 RLI_NL <- lm(Y~(month + year + day)*Temp ,data=don.train)
 pred_RLI_NL=predict(RLI_NL, newdata=don.test, se=T)
 MSE_RLI_NL= mean((Y.test-predict(RLI_NL,don.test))^2)
+MAPE_RLI_NL = fun_mape(Y.test,RLI_NL, don.test)
 
 # résidus
 plot(RLI_NL)
@@ -164,6 +178,7 @@ checkresiduals(RLI_NL)
 RLI_NL_multi <- lm(Y~(month + year + day)* (Temp + t1 + t2 + t3 + t4 + t5 + t6 + t7), data=don.train) 
 pred_RLI_NL_multi=predict(RLI_NL_multi, newdata=don.test, se=T)
 MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
+MAPE_RLI_NL_multi = fun_mape(Y.test,RLI_NL_multi, don.test)
 
 # résidus
 plot(RLI_NL_multi)
@@ -174,6 +189,7 @@ checkresiduals(RLI_NL_multi)
 RLI_NL_P2<-lm(Y~ (month + year + day)*I(poly(Temp, 2)), data=don.train) 
 pred_RLI_NL_P2=predict(RLI_NL_P2, newdata=don.test, se=T)
 MSE_RLI_NL_P2= mean((Y.test-predict(RLI_NL_P2,don.test))^2)
+MAPE_RLI_NL_P2 = fun_mape(Y.test,RLI_NL_P2, don.test)
 
 # résidus
 plot(RLI_NL_P2)
@@ -205,6 +221,7 @@ poly_NL_deg # 5
 POLY_NL<- lm(formula=Y~poly(Temp,poly_NL_deg, raw=T), data=don.train)
 pred_POLY_NL=predict(POLY_NL, newdata=don.test, se=T) 
 MSE_POLY_NL= mean((Y.test-predict(POLY_NL,don.test))^2)
+MAPE_POLY_NL = fun_mape(Y.test,POLY_NL, don.test)
 
 # résidus
 plot(POLY_NL)
@@ -238,6 +255,7 @@ attr(ns(X,df=SP_NL_df),"knots") # 2 noeuds
 SP_NL <- lm ( Y~ ns(Temp, df = SP_NL_df), data=don.train)
 pred_SP_NL=predict(SP_NL, newdata=don.test, se=T)
 MSE_SP_NL= mean((Y.test-predict(SP_NL,don.test))^2)
+MAPE_SP_NL = fun_mape(Y.test,SP_NL, don.test)
 
 # résidus
 plot(SP_NL)
@@ -270,6 +288,7 @@ attr(ns(X,df=GAM_NL_SP_df),"knots") # 9 noeuds # besoin de X=Temp
 GAM_NL_SP=lm(Y~ns(Temp,df=GAM_NL_SP_df) + month + year + day, data=don.train)
 pred_GAM_NL_SP=predict(GAM_NL_SP, newdata=don.test, se=T)
 MSE_GAM_NL_SP= mean((Y.test-predict(GAM_NL_SP,don.test))^2)
+MAPE_GAM_NL_SP = fun_mape(Y.test,GAM_NL_SP, don.test)
 
 # résidus
 plot(GAM_NL_SP)
@@ -345,7 +364,7 @@ for (j in 1:nb) {
 }
 
 RF_NL_node = which.min(MSE_RF_NL_node) # 5
-# barplot(MSE_RF_NL_node, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_NL_node) , names = names(MSE_RF_NL_node) ,main="MSE selon nodesize",las=0) 
+# barplot(MSE_RF_NL_node, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_NL_node) , names = names(MSE_RF_NL_node) ,main="MSE selon nodesize",las=0)
 
 
 
@@ -353,6 +372,7 @@ RF_NL_node = which.min(MSE_RF_NL_node) # 5
 RF_NL<-randomForest(Y~., mtry = RF_NL_mtry, ntree= RF_NL_ntree, nodesize = RF_NL_node ,data=don.train)
 pred_RF_NL = predict(RF_NL, don.test)
 MSE_RF_NL= mean((Y.test-predict(RF_NL,don.test))^2)
+MAPE_RF_NL = fun_mape(Y.test,RF_NL, don.test)
 
 # # résidus : la saisonnalité n'a pas été bien captée: le graphe des résidus est sinusoidal
 res_RF_NL=don.test$Y-RF_NL$predicted
@@ -380,6 +400,7 @@ MODELE SVR
 SVR_NL = svm(Y~.,don.train)
 pred_SVR_NL = predict(SVR_NL, don.test)
 MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
+MAPE_SVR_NL = fun_mape(Y.test,SVR_NL, don.test)
 
 # résidus
 # plot(SVR_NL_tot$residuals)
@@ -416,6 +437,7 @@ set.seed(1)
 NN_NL <- NN_NL_cv$finalModel
 pred_NN_NL <- predict(NN_NL, newdata = don.test)
 MSE_NN_NL <- mean((pred_NN_NL - don.test$Y)^2)
+MAPE_NN_NL = fun_mape(Y.test, NN_NL, don.test)
 
 # tune values
 NL_TV=NN_NL_cv$finalModel$tuneValue
@@ -429,36 +451,89 @@ checkresiduals(res_NN_NL[,1]) # la distribution n'est pas vraiment gaussienne
 ```
 
 
+XGBOOST
+```{r}
+
+don <- base_NL_F_cr
+
+# nom des variables facteurs à convertir en dummies variables
+ohe_vars <- names(don)[which(sapply(don, is.factor))]
+
+# conversion en en dummies variables
+dummies <- dummyVars(~., data = don)
+don_ohe <- as.data.frame(predict(dummies, newdata = don))
+
+# remplacer les variables facteurs par les dummies
+don <- cbind(don[, -c(which(colnames(don) %in% ohe_vars))], don_ohe)
+
+# train/test 
+Xtrain <- don[train, ]
+Xtest <- don[-train, ]
+
+# modelisation
+XGB_NL <- xgboost(data = data.matrix(Xtrain), label = Y.train,
+  booster = "gbtree", objective = "reg:linear", eval_metric = "rmse",
+  learning_rate = 0.05, 
+  subsample = 0.5, seed = 1, # subsample default value=1. Setting to 0.5 means that XGBoost randomly collected half of the data instances to grow trees and this will prevent overfitting. 
+  silent = 1, nrounds = 500, verbose = 0)
+
+# prédiction
+pred_XGB_NL= predict(XGB_NL, data.matrix(Xtest))
+MSE_XGB_NL=mean((Y.test-pred_XGB_NL)^2)
+MAPE_XGB_NL = fun_mape(Y.test, XGB_NL, data.matrix(Xtest))
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="XGB Pays Bas" )
+lines(don.test$Date,pred_XGB_NL, col="purple") 
+
+# résidus
+checkresiduals(Y.test-pred_XGB_NL)
+
+```
+
+
+
 SYNTHESE DES MODELES 
+
+# MAPE plot
+```{r}
+
+# comparaison des MAPE entre les modèles 
+MAPE_NL_tot=c(MAPE_RL_NL, MAPE_RLI_NL, MAPE_RLI_NL_multi, MAPE_RLI_NL_P2, MAPE_POLY_NL, MAPE_SP_NL, MAPE_GAM_NL_SP, MAPE_RF_NL, MAPE_SVR_NL, MAPE_NN_NL, MAPE_XGB_NL)
+
+# graphe des MAPE
+graph<-barplot(MAPE_NL_tot, xlab="modèles", ylab="MAPE %", main="MAPE des modèles Pays Bas",las=0)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB"), at = graph)
+
+```
+
 
 
 # MSE plot
 ```{r}
 
-
-# comparaison des MSE entre les modèles RL, RLI, Poly, Spline, GAM, SVR
-MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL)
+# comparaison des MSE entre les modèles 
+MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
 
 # graphe des MSE
 graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Pays Bas",las=0)
-axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF", "SVR", "NN"), at = graph)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB"), at = graph)
 
 ```
 
 # MSE minimal
 ```{r}
-which.min(MSE_NL_tot) # c'est le modèle SVR qui présente la plus petite MSE
+which.min(MSE_NL_tot) # c'est le modèle XGB qui présente la plus petite MSE
 ```
 
 # MSE plots meilleurs modèles 
 ```{r}
 
-# comparaison des MSE entre les meilleurs modèles, sans P2, Poly simple, Spline simple
-MSE_NL_r=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL)
+# comparaison des MSE entre les meilleurs modèles
+MSE_NL_r=c(MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
 
 # graphe des MSE
-graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_SVR_NL, MSE_RL_NL) ,main="MSE des modèles", las=0)
-axis(1, labels=c("RL", "RLI","multi", "GAM_SP" ,"RF", "SVR", "NN"), at = graph)
+graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_XGB_NL, MSE_RLI_NL) ,main="MSE des modèles", las=0)
+axis(1, labels=c("RLI","multi", "GAM_SP" ,"RF", "SVR", "NN", "XGB"), at = graph)
 
 
 ```
