@@ -1,0 +1,473 @@
+---
+title: "Synthese NL Pays Bas"
+author: "Nhu-Nguyen Ngo"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+remplacer nom fichier
+remplacer title
+remplacer base: base_NL_F
+remplacer suffixe: _NL
+remplacer nom: Pays Bas
+
+
+# PACKAGES
+```{r}
+
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate)      # pour les dates
+library(dummies)        # création de variables dummies (pour bestglm)
+library(forecast)       # plot sympa des résidus
+library(corrplot)       # plot de la matrice de corrélation
+library(PerformanceAnalytics)
+
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps)          # regsubset
+
+
+# cross validation
+library(stats)          # fonction glm
+library(caret)
+
+# CLUSTERING
+library(cluster)
+library(fastcluster)
+
+
+# MODELES
+library(ISLR)
+library(glmnet)         # Poly, GAM
+library(boot)           # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071)          # SVR
+library(nnet)           # reseau neurones
+library(neuralnet)
+library(mlbench)
+library(gbm)
+library(xgboost)
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+```
+
+
+# fonctions performance
+```{r}
+# Y variable cible
+# model = fit du model
+# don.test : base de test
+
+fun_mse <- function (Y.test, model, don.test) {
+  mse <- mean((Y.test-predict(model,don.test))^2)
+  return(mse)
+}
+
+
+
+fun_mape = function (Y,model, don.test) {
+  error <- Y-predict(model,don.test)
+  mape <- mean(abs(error/Y))*100
+  return(mape)
+}
+# mape pas adapté quand Y proche de zéro, ce qui peut être le cas avec des données centrées réduites
+
+
+fun_mase = function (model) {
+  acc <- accuracy(model)
+  MASE <- acc [[6]]
+  return(MASE)
+}
+# accuracy ne fonctionne pas pour RF, SVR, NN, XGB
+
+```
+
+
+# BASE DE DONNEES ET FORMATAGE VARIABLES TRAIN TEST 
+```{r}
+
+# sur la base centrée réduite, sans les autres variables méteo
+don <- base_NL_F_cr
+
+dim(don)
+
+# suppression des variales liées à la température teff, seuil, T00
+don<-don[,-which(colnames(don)== "teff")] 
+don<-don[,-which(colnames(don)== "seuil")] 
+don<-don[,-which(colnames(don)== "T00")] 
+head(don)
+
+# creation des variables Y (variable cible) et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+# variables pour modèles polynomial et splines
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train sur base compl?te sans les 14 derniers jours et test 1/3
+set.seed(1)
+dim<-nrow(don)
+split=0.8
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+don.train=don[train,]
+don.test=don[-train,]
+Y.train=Y[train]
+Y.test=Y[-train]
+
+test=model.matrix(Y~.,data=don[-train,])# model matrice sur base de test
+
+# X.train=X[train]
+# X.test=X[-train]
+# donYX.train=donYX[train,]
+# donYX.test=donYX[-train,]
+
+names(don)
+
+```
+
+# Résultats des sélections des variables 
+```{r}
+
+# variables sélectionnées par regsubset forward MSE: 
+FW_NL_formule_best <- Y ~Temp + cosinus + sinus + day_length + t2 + t4 + t6 + t7 + Date + month + year + day + jc + lagholidays +  quarter + season
+
+# variables sélectionnées par regsubset FW BIC: 
+FW_NL_formule_BIC = Y ~ Temp + cosinus + sinus + day_length + t4 + t6 + Date + month + day + lagholidays + quarter + season
+
+# variables sélectionnées par regsubset backward MSE: 
+BW_NL_formule_best <- Y ~ Temp + cosinus + sinus + day_length + t2 + t4 + t6 + Date + month + year + day + quarter + season 
+
+# variables sélectionnées par regsubset BW BIC: 
+FW_NL_formule_BIC = Y ~ Temp + cosinus + sinus + day_length + t4 + t6 + month + day + quarter + season
+
+
+```
+
+Etudes préliminaires
+
+- 1: estimation des modèles lm avec les variables sélectionnées par regsubset (FW best, FW BIC, BW best, BW BIC) mais les modèles obtenus sont de rangs faibles
+
+- 2: estimation du modèle avec toutes les variables, puis on ne garde que les variables significatives: Temp + cosinus + sinus + day_length + t4 + t6 + month+ day + lagholidays + leadholidays
+
+- 3 : étude des corrélations montrent que une forte corrélation entre Temp et les autres variables numériques cosinus, day_length
+
+- 3: finalement, on ne garde que Temp comme variable numérique et month, year, day comme variables date car les autres sont trop corrélées
+
+
+# MODELES OLS
+pour chaque modèle OLS:
+1- on estime le modèle avec toutes les variables (tot), le modèle en gardant à la main les variables significatives (fin) et le mdoèle issu de la sélection de variable step.
+2- on retient celui qui présente la plus petite MSE
+
+```{r}
+
+# SANS INTERACTION ----------------------------------------------------------------------------------
+# modèle linéaire entre Y  et Temp et les variables month, year, day
+# modèle retenu: tot, fin et step sont identiques
+RL_NL <- lm(Y~  Temp + month + year + day, data=don.train)
+pred_RL_NL=predict(RL_NL, newdata=don.test, se=T)
+MSE_RL_NL= mean((Y.test-predict(RL_NL,don.test))^2)
+
+
+# AVEC INTERACTION ---------------------------------------------------------------------------------
+# modèle linéaire avec interaction entre Temp et les variables month, year, day
+# modèle retenu: fin 
+# écart min_max MSE= 3.1%
+RLI_NL <- lm( Y~ month + year + day + month:Temp + year:Temp + day:Temp, data=don.train)
+pred_RLI_NL=predict(RLI_NL, newdata=don.test, se=T)
+MSE_RLI_NL= mean((Y.test-predict(RLI_NL,don.test))^2)
+
+
+# modèle linéaire avec interaction multiples entre les variables (Temp  et ses lags t1 à t7) et les variables month, year, day
+# modèle retenu : step
+# écart min_max MSE= 6"%
+RLI_NL_multi <- lm( Y ~  month + year + day + Temp + t1 + t2 + t3 + t4 + t5 + t6 + t7 + month:Temp + month:t1 + month:t2 + month:t3 + month:t4 + month:t5 + month:t7 + year:t1 + year:t2 + year:t3 + year:t5 + year:t6 + year:t7 + day:Temp, data = don.train) 
+pred_RLI_NL_multi=predict(RLI_NL_multi, newdata=don.test, se=T)
+MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
+
+
+# modèle linéaire avec interaction entre poly(Temp,2) et les autres variables
+# modèle retenu : fin
+# écart min_max MSE= 1.3%
+RLI_NL_P2<-lm( Y~ month + year +  day +  I(poly(Temp, 2)) + month:I(poly(Temp, 2)) + day:I(poly(Temp, 2)), data=don.train)  
+pred_RLI_NL_P2=predict(RLI_NL_P2, newdata=don.test, se=T)
+MSE_RLI_NL_P2= mean((Y.test-predict(RLI_NL_P2,don.test))^2)
+
+
+# de tous ces modèles OLS, c'est le RLI qui présente la plus petite MSE et RLI_P2 qui présente la plus grande, avec un écart important (RLI_P2 12x foix plus grand que RLI)
+
+# enseignements pour généraliser aux autres pays:
+# 1 - vu l'écart relativement faible (2% et 6%) de MSE entre tot, fin et step, on pourrait se contenter de faire tot
+# 2- vu l'écart important de MSE entre RLI_P2 avec les autres, on pourrait éviter de faire P2 pour les autres pays
+
+
+```
+
+
+# MODELES POLYNOMIAL ET SPLINES
+```{r}
+# ----- MODELE POLYNOMIAL SIMPLE ---------------------------------------------------------
+# Conso en fonction d'un polynome de Temp
+# choix du degré (5) du polynome choisi par CV (hold out et k_fold) en minimisant le MSE
+# modèle retenu par minimisation MSE : hold out
+POLY_NL<- lm(formula=Y~poly(Temp,5, raw=T), data=don.train)
+pred_POLY_NL=predict(POLY_NL, newdata=don.test, se=T) 
+MSE_POLY_NL= mean((Y.test-predict(POLY_NL,don.test))^2)
+
+
+# ----- MODELE SPLINES SIMPLE ---------------------------------------------------------
+# Conso en fonction d'un spline de Temp
+# CV pour choisir le degré de liberté (donc le nombre de noeuds) et choisir entre natural splins vs basic splines
+# modèle retenu: natural spline, df=3 (2 noeuds)
+SP_NL <- lm ( Y~ ns(Temp, df = 3), data=don.train)
+pred_SP_NL=predict(SP_NL, newdata=don.test, se=T)
+MSE_SP_NL= mean((Y.test-predict(SP_NL,don.test))^2)
+
+
+```
+
+
+
+# MODELES GAM simples
+```{r}
+# GAM_POLY ------------------------------------------------------------------------
+# Conso en fonction d'un poly sur Temp et la somme des variables month, year, day
+# détermination du degré du polynome par CV hold out: 6
+# modèle GAM retenu par MSE : les modèles tot fin et step sont identiques 
+GAM_NL_POLY <-lm(formula = Y ~ poly(Temp, 6) + month + year + day, data = don.train) 
+pred_GAM_NL_POLY=predict(GAM_NL_POLY, newdata=don.test, se=T)
+MSE_GAM_NL_POLY= mean((Y.test-predict(GAM_NL_POLY,don.test))^2)
+
+
+# GAM_Spline -----------------------------------------------------------------------
+#Conso en fonction d'un spline sur Temp et la somme des variables month, year, day
+# détermination du degré/noeud du spline par CV hold out: 3 (2 noeuds)
+# modèle GAM retenu par MSE : les modèles tot fin et step sont identiques 
+GAM_NL_SP <-lm(Y~ns(Temp,df=3) + month + year + day, data=don.train)
+pred_GAM_NL_SP=predict(GAM_NL_SP, newdata=don.test, se=T)
+MSE_GAM_NL_SP= mean((Y.test-predict(GAM_NL_SP,don.test))^2)
+
+# les MSE des 2 GAM ont l'air très proches:
+which.min(c(MSE_GAM_NL_POLY,MSE_GAM_NL_SP)) #  c'est GAM SP qui a la plus petite MSE
+100*(MSE_GAM_NL_POLY-MSE_GAM_NL_SP)/ MSE_GAM_NL_SP # l'écart est de 1.2%.
+# conclusion: pour les autres pays, on pourrait se contenter de faire GAM SP
+
+
+
+```
+
+
+# MODELE RANDOM FOREST
+```{r}
+
+# Random Forest , avec mtry (8), ntree (400) et nodesize (1) choisis par CV hold out
+RF_NL<-randomForest(Y~., mtry = 8, ntree= 400, nodesize = 1 ,data=don.train)
+pred_RF_NL = predict(RF_NL, don.test)
+MSE_RF_NL= mean((Y.test-predict(RF_NL,don.test))^2)
+
+```
+
+
+# MODELE SVR
+```{r}
+SVR_NL = svm(Y~.,don.train)
+pred_SVR_NL = predict(SVR_NL, don.test)
+MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
+
+```
+
+
+# MODELE RESEAUX NEURONES
+```{r}
+# détermination par CV de size (4) et decay (0.5)
+# avec caret
+controlList <- trainControl(method = "cv", number = 5)
+tuneMatrix <- expand.grid(size = c(1, 2, 3, 4, 5, 6), decay = seq(from = 0, to = 0.5, by=0.1))
+
+set.seed(1)
+NN_NL_tot <- train(x = don.train[ , colnames(don.train) != "Y"],
+                   y = don.train[ , colnames(don.train) == "Y"],
+                   method = "nnet",
+                   linout = TRUE,
+                   trace = FALSE,
+                   maxit = 100,
+                   tuneGrid = tuneMatrix,
+                   trControl = controlList)
+
+set.seed(1)
+NN_NL <- NN_NL_tot$finalModel
+NN_NL_pred <- predict(NN_NL, newdata = don.test)
+MSE_NN_NL <- sqrt(mean((NN_NL_pred - don.test$Y)^2)) 
+
+
+```
+
+
+# XGBOOST
+```{r}
+#^ choix de nround par CV (500)
+
+don <- base_NL_F_cr
+
+# nom des variables facteurs à convertir en dummies variables
+ohe_vars <- names(don)[which(sapply(don, is.factor))]
+
+# conversion en en dummies variables
+dummies <- dummyVars(~., data = don)
+don_ohe <- as.data.frame(predict(dummies, newdata = don))
+
+# remplacer les variables facteurs par les dummies
+don <- cbind(don[, -c(which(colnames(don) %in% ohe_vars))], don_ohe)
+
+# train/test 
+Xtrain <- don[train, ]
+Xtest <- don[-train, ]
+
+# modelisation
+XGB_NL <- xgboost(data = data.matrix(Xtrain), label = Y.train,
+  booster = "gbtree", objective = "reg:linear", eval_metric = "rmse",
+  learning_rate = 0.05, 
+  subsample = 0.5, seed = 1, # subsample default value=1. Setting to 0.5 means that XGBoost randomly collected half of the data instances to grow trees and this will prevent overfitting. 
+  silent = 1, nrounds = 400, verbose = 0)
+
+# prédiction
+pred_XGB_NL= predict(XGB_NL, data.matrix(Xtest))
+MSE_XGB_NL=mean((Y.test-pred_XGB_NL)^2)
+MAPE_XGB_NL = fun_mape(Y.test, XGB_NL, data.matrix(Xtest))
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="XGB Pays Bas" )
+lines(don.test$Date,pred_XGB_NL, col="purple") 
+
+
+```
+
+
+# SYNTHESE DES MODELES 
+
+
+## MSE plot
+```{r}
+
+
+# comparaison des MSE de tous les modèles 
+MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_POLY,MSE_GAM_NL_SP ,MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Pays Bas",las=0)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM_poly", "GAM_SP" ,"RF", "SVR", "NN", "XGB"), at = graph)
+
+```
+
+MSE minimal
+```{r}
+which.min(MSE_NL_tot) # c'est le modèle XGB
+```
+
+MSE plots meilleurs modèles 
+```{r}
+
+# comparaison des MSE entre les meilleurs modèles, sans P2, Poly simple, Spline simple, NN
+MSE_NL_r=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL_POLY, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_XGB_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_SVR_NL, MSE_RL_NL) ,main="MSE des modèles", las=0)
+axis(1, labels=c("RL", "RLI","multi", "GAM_POLY","GAM_SP" ,"RF", "SVR", "XGB"), at = graph)
+
+
+```
+
+
+objet RF et SVR pas reconnu par stargazer
+```{r}
+# on enlève RLI_P2 dont la MSE est plus de 2 fois suppérieure à celle des autres RL, ainsi que POLY et Splines simples
+stargazer(RL_NL, RLI_NL, RLI_NL_multi, RLI_NL_P2, GAM_NL_POLY, GAM_NL_SP, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("RL", "RLI", "multi","P2","gamP", "gamS"), keep = c("Date"), model.names = TRUE, single.row = TRUE)
+
+# le R² ajusté est le plus élevé pour RLI Multi
+# le residual error est le plus faible pour RLI Multi
+# F-stat est le plus élevé pour GAM_POLY
+
+```
+
+
+
+
+## graphe des valeurs prédites selon les modèles
+```{r}
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles" )
+lines(don.test$Date,pred_RL_NL$fit, col="purple") 
+lines(don.test$Date,pred_RLI_NL_multi$fit, col="cyan") 
+lines(don.test$Date,pred_GAM_NL_POLY$fit, col="yellow") 
+lines(don.test$Date,pred_GAM_NL_SP$fit, col="bisque")
+lines(don.test$Date, pred_SVR_NL, col="blue") 
+lines(don.test$Date, pred_RF_NL, col="red") 
+lines(don.test$Date,pred_POLY_NL$fit, col="pink") 
+lines(don.test$Date,pred_SP_NL$fit, col="green") 
+lines(don.test$Date,pred_RLI_NL$fit, col="orange") 
+
+```
+
+
+```{r}
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles XGB (tomato)" )
+lines(don.test$Date, pred_XGB_NL, col="tomato")  
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles SVR (blue)" )
+lines(don.test$Date, pred_SVR_NL, col="blue")
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles NN(aquamarine)" )
+lines(don.test$Date, pred_NN_NL, col="aquamarine") 
+
+
+```
+
+
+## Résidus
+
+Résidus XGB
+```{r}
+checkresiduals(Y.test-pred_XGB_NL)
+
+```
+
+Résidus SVR
+```{r}
+res_SVR_NL=don.test$Y-pred_SVR_NL
+checkresiduals(res_SVR_NL)
+# résidus moyens, avec quelques autocorrélations et une distribution non centrée, avec une queue à gauche
+
+```
+
+Résidus réseaux neurones
+```{r}
+res_NN_NL=Y.test-pred_NN_NL
+checkresiduals(res_NN_NL[,1]) # la distribution n'est pas vraiment gaussienne
+
+```
+

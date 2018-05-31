@@ -1,0 +1,93 @@
+---
+title: "Comparaison XGboost Arima GAM"
+author: "Nhu-Nguyen"
+date: "21 mai 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# fonction XGBOOST
+```{r}
+
+fun_xgb <- function (base,id) {
+  
+  don <- base
+
+  # creation des variables Y (variable cible)
+  don<- rename.variable(don, "Conso", "Y")
+  head(don)
+
+
+  # nom des variables facteurs à convertir en dummies variables
+  ohe_vars <- names(don)[which(sapply(don, is.factor))]
+
+  # conversion en en dummies variables
+  dummies <- dummyVars(~., data = don)
+  don_ohe <- as.data.frame(predict(dummies, newdata = don))
+
+  # remplacer les variables facteurs par les dummies
+  don <- cbind(don[, -c(which(colnames(don) %in% ohe_vars))], don_ohe)
+
+  # train/test 
+  set.seed(1)
+  dim<-nrow(don)
+  split=4/5
+  train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+  Xtrain <- don[train, ]
+  Xtest <- don[-train, ]
+
+  # modelisation
+  XGB_id <- xgboost(data = data.matrix(Xtrain), label = Xtrain$Y,
+    booster = "gbtree", objective = "reg:linear", eval_metric = "rmse",
+    learning_rate = 0.05, 
+    subsample = 0.5, seed = 1, # subsample default value=1. Setting to 0.5 means that XGBoost randomly collected half of the data instances to grow trees    and this will prevent overfitting. 
+    silent = 1, nrounds = 500, verbose = 0)
+  
+  # prédiction
+  pred_XGB_id= predict(XGB_id, data.matrix(Xtest))
+  MSE_XGB_id=mean((Xtest$Y-pred_XGB_id)^2)
+  MAPE_XGB_id = fun_mape(Xtest$Y, XGB_id, data.matrix(Xtest)) 
+  
+  return(MAPE_XGB_id)
+  
+}
+
+
+MAPE_XGB_BE <- fun_xgb(base_BE_F_cr,BE)
+MAPE_XGB_DE <- fun_xgb(base_DE_F_cr,DE)
+MAPE_XGB_FR <- fun_xgb(base_FR_F_cr,FR)
+MAPE_XGB_UK <- fun_xgb(base_UK_F_cr,UK)
+MAPE_XGB_ES <- fun_xgb(base_ES_F_cr,ES)
+
+```
+
+
+# Comparaison avec resusltats Irina
+```{r}
+names_mape=c("FR", "BE", "DE", "UK", "NL", "ES")
+mape_arima=c(5.72, 5.22, 6.14, 11.15, 5.39, 5.59)
+mape_gam_irina=c(4.31,3.82, 5.49, 4.08, 9.05, 3.19)
+mape_xgb= c(MAPE_XGB_FR, MAPE_XGB_BE, MAPE_XGB_DE, MAPE_XGB_UK, MAPE_XGB_NL, MAPE_XGB_ES)
+
+mape_tot <- rbind(mape_arima, mape_gam_irina, mape_xgb)
+colnames(mape_tot) <- names_mape
+
+head(mape_tot)
+
+```
+
+
+```{r}
+graph <-barplot(mape_arima,  ylab = "MAPE %",main= " arima (bar) GAM (blue) XGB (red)" )
+axis(1, labels=c("FR", "BE", "DE", "UK", "NL", "ES"), at = graph)
+lines (mape_gam_irina, col="blue")
+lines(mape_xgb, col="red")
+
+```
+
+
