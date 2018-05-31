@@ -1,0 +1,50 @@
+---
+title: "ARIMA GAM DATA"
+author: "Nhu-Nguyen"
+date: "21 mai 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+arima
+```{r}
+
+load(choose.files())
+
+# arima_conso_test : x
+arima_conso_test <- x
+
+# arima_conso_train : arima.acc
+# arima_fitted_train : arima.fit
+
+# arima_forecast_test : x
+irina_arima_forecast_test <-x
+head(x)
+
+# arima_residials : arima.res
+
+
+```
+
+
+
+gam
+```{r}
+load(choose.files()) 
+
+# gam_conso_train.Rdata: conso_gam_train
+# gam_fitted_train.Rdata : conso_gam_fitted
+# gam_model_list.Rdata : x, liste 6
+irina_gam_model <- x
+
+head(x)
+names(x) # "FR" "BE" "DE" "NL" "UK" "ES"
+str(x)
+
+```
+
+
+
