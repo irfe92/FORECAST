@@ -1,0 +1,537 @@
+---
+title: "Synthese Espagne"
+author: "Nhu-Nguyen Ngo"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+remplacer nom fichier
+remplacer title
+remplacer base: base_ES_F
+remplacer suffixe: _ES
+remplacer nom: Espagne
+
+
+# PACKAGES
+```{r}
+
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate)      # pour les dates
+library(dummies)        # création de variables dummies (pour bestglm)
+library(forecast)       # plot sympa des résidus
+library(corrplot)       # plot de la matrice de corrélation
+library(PerformanceAnalytics)
+
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps)          # regsubset
+
+
+# cross validation
+library(stats)          # fonction glm
+library(caret)
+
+# CLUSTERING
+library(cluster)
+library(fastcluster)
+
+
+# MODELES
+library(ISLR)
+library(glmnet)         # Poly, GAM
+library(boot)           # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071)          # SVR
+library(nnet)           # reseau neurones
+library(neuralnet)
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+
+```
+
+
+
+# BASE DE DONNEES ET FORMATAGE VARIABLES TRAIN TEST 
+```{r}
+
+# sur la base centrée réduite, sans les autres variables méteo
+don <- base_ES_F_cr
+
+dim(don)
+
+# suppression des variales liées à la température teff, seuil, T00
+don<-don[,-which(colnames(don)== "teff")] 
+don<-don[,-which(colnames(don)== "seuil")] 
+don<-don[,-which(colnames(don)== "T00")] 
+head(don)
+
+# creation des variables Y (variable cible) et X
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+# variables pour modèles polynomial et splines
+Y=don$Y 
+X=don$Temp
+donYX=data.frame(cbind(Y,X))
+
+# Creation de l'echantillon train sur base compl?te sans les 14 derniers jours et test 1/3
+set.seed(1)
+dim<-nrow(don)
+split=2/3
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+test=model.matrix(Y~.,data=don[-train,])# model matrice sur base de test
+
+Y.train=Y[train]
+X.train=X[train]
+Y.test=Y[-train]
+X.test=X[-train]
+don.train=don[train,]
+don.test=don[-train,]
+donYX.train=donYX[train,]
+donYX.test=donYX[-train,]
+
+names(don)
+
+```
+
+# étude de corrélations et sélection des variables 
+```{r}
+
+```
+
+
+
+# MODELES OLS
+```{r}
+
+# SANS INTERACTION ============================================================================================================================
+
+# modèle linéaire entre Y  et Temp et les variables month, year, day
+RL_ES <- lm(Y~  Temp + month + year + day, data=don.train)
+pred_RL_ES=predict(RL_ES, newdata=don.test, se=T)
+MSE_RL_ES= mean((Y.test-predict(RL_ES,don.test))^2)
+
+# résidus
+plot(RL_ES)
+checkresiduals(RL_ES)
+
+# AVEC INTERACTION ============================================================================================================================
+
+
+# modèle linéaire avec interaction entre Temp et les variables month, year, day ----------------------------------------------------------------
+RLI_ES <- lm(Y~(month + year + day)*Temp ,data=don.train)
+pred_RLI_ES=predict(RLI_ES, newdata=don.test, se=T)
+MSE_RLI_ES= mean((Y.test-predict(RLI_ES,don.test))^2)
+
+# résidus
+plot(RLI_ES)
+checkresiduals(RLI_ES)
+
+
+# modèle linéaire avec interaction multiples entre les variables (Temp  et ses lags t1 à t7) et les variables month, year, day ------------------
+RLI_ES_multi <- lm(Y~(month + year + day)* (Temp + t1 + t2 + t3 + t4 + t5 + t6 + t7), data=don.train) 
+pred_RLI_ES_multi=predict(RLI_ES_multi, newdata=don.test, se=T)
+MSE_RLI_ES_multi= mean((Y.test-predict(RLI_ES_multi,don.test))^2)
+
+# résidus
+plot(RLI_ES_multi)
+checkresiduals(RLI_ES_multi)
+
+
+# modèle linéaire avec interaction entre poly(Temp,2) et les autres variables ----------------------------------------------------------------
+RLI_ES_P2<-lm(Y~ (month + year + day)*I(poly(Temp, 2)), data=don.train) 
+pred_RLI_ES_P2=predict(RLI_ES_P2, newdata=don.test, se=T)
+MSE_RLI_ES_P2= mean((Y.test-predict(RLI_ES_P2,don.test))^2)
+
+# résidus
+plot(RLI_ES_P2)
+checkresiduals(RLI_ES_P2)
+
+```
+
+
+
+# MODELE POLYNOMIAL SIMPLE
+Conso en fonction d'un polynome de Temp
+```{r}
+
+# choix du degré (5) du polynome choisi par CV (hold out et k_fold) en minimisant le MSE
+d=20 # degré max de polynome à tester
+err_poly_ES=rep(NA,d)
+for(i in 1:d) {
+  model <- lm(formula=Y~poly(X,i, raw=T), data=donYX.train)
+  err_poly_ES[i] <- mean((Y.test-predict(model,donYX.test))^2)
+  }
+
+# plot(err_poly_ES,ylab="MSE", main=' MSE Espagne selon le degré de polynome',pch=19,type='b')
+
+poly_ES_deg=which.min(err_poly_ES) 
+poly_ES_deg # 6
+
+
+# MODELE RETENU
+POLY_ES<- lm(formula=Y~poly(Temp,poly_ES_deg, raw=T), data=don.train)
+pred_POLY_ES=predict(POLY_ES, newdata=don.test, se=T) 
+MSE_POLY_ES= mean((Y.test-predict(POLY_ES,don.test))^2)
+
+# résidus
+plot(POLY_ES)
+checkresiduals(POLY_ES)
+
+```
+
+
+
+# MODELES SPLINES SIMPLE
+Conso en fonction d'un spline de Temp
+```{r}
+# pour natural spline? CV pour choisir le degré de liberté (donc le nombre de noeuds) qui minimise le MSE
+DF=15 # df max à tester
+MSE_SP_ES_CV=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(Temp,df=i), data=don.train)
+  MSE_SP_ES_CV[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+# plot(sqrt(MSE_SP_ES_CV),ylab="MSE", main=' MSE Espagne selon le degré de liberté du spline',pch=19,type='b')
+
+# On choisit le modele qui a la MSE la plus petite sur le test set
+SP_ES_df=which.min(MSE_SP_ES_CV)
+SP_ES_df # 4
+
+attr(ns(X,df=SP_ES_df),"knots") # 3 noeuds
+
+
+# modèle retenu: natural spline, df=4 (3 noeuds)
+SP_ES <- lm ( Y~ ns(Temp, df = SP_ES_df), data=don.train)
+pred_SP_ES=predict(SP_ES, newdata=don.test, se=T)
+MSE_SP_ES= mean((Y.test-predict(SP_ES,don.test))^2)
+
+# résidus
+plot(SP_ES)
+checkresiduals(SP_ES)
+
+```
+
+
+
+# MODELE GAM SPLINE
+Conso en fonction d'un spline sur Temp et la somme des variables month, year, day
+```{r}
+# pour natural spline, recherche degré df qui minimise le MSE
+DF=15 # df max à tester
+MSE_GAM_ES_SP_CV=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(Temp,df=i) + month + year + day, data=don.train)
+  MSE_GAM_ES_SP_CV[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+
+# Plot(MSE_GAM_ES_SP_CV, ylab="MSE", main=' MSE Espagne selon le degré de liberté du spline',pch=19,type='b')
+
+# On choisit le DF qui a la MSE la plus petite sur le test set
+GAM_ES_SP_df=which.min(MSE_GAM_ES_SP_CV)
+GAM_ES_SP_df # 2
+attr(ns(X,df=GAM_ES_SP_df),"knots") # 1 noeud # besoin de X=Temp
+
+# modèle GAM retenu par MSe
+GAM_ES_SP=lm(Y~ns(Temp,df=GAM_ES_SP_df) + month + year + day, data=don.train)
+pred_GAM_ES_SP=predict(GAM_ES_SP, newdata=don.test, se=T)
+MSE_GAM_ES_SP= mean((Y.test-predict(GAM_ES_SP,don.test))^2)
+
+# résidus
+plot(GAM_ES_SP)
+checkresiduals(GAM_ES_SP)
+
+```
+
+
+
+MODELE RANDOM FOREST
+avec mtry, ntree et nodesize choisis par CV hold out
+```{r}
+
+# CHOIX DE MTRY PAR CV -----------------------------------------------------------------------------------
+set.seed(1)
+m=15 # mtry max à tester. 
+MSE_RF_ES_mtry=rep(0,m)
+for(i in 1:m) {
+  set.seed(1)
+  model <- randomForest(Y~., data=don.train, mtry = i)
+  MSE_RF_ES_mtry[i] <- mean((Y.test-predict(model,don.test))^2)
+  }
+
+RF_ES_mtry= which.min(MSE_RF_ES_mtry) 
+RF_ES_mtry  # 9
+# plot(MSE_RF_ES_mtry, xlab="mtry", ylab="MSE", main="MSE selon mtry", type="b")
+
+
+
+# CHOIX DE NTREE PAR CV  -----------------------------------------------------------------------------------
+Ntree=seq(100,1000,by=100)  # ntree à tester
+d=length(Ntree)
+nb=1 # nombre de tests de cross validation
+MSE_RF_ES_tree=rep(NA,d*nb)
+res_ntree=rep(NA,nb)   # résultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+
+  for(i in 1:d) {
+    set.seed(1)
+    model <- randomForest(Y~., data=don.train, mtry = RF_ES_mtry, ntree=Ntree[i])
+    MSE_RF_ES_tree[i+j-1] <- mean((don.test$Y-predict(model,don.test))^2)
+  }
+
+  res_ntree[j]=Ntree[which.min(MSE_RF_ES_tree)]
+
+}
+
+RF_ES_ntree = Ntree[which.min(MSE_RF_ES_tree)] # 400
+RF_ES_ntree
+# barplot(MSE_RF_ES_tree, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_ES_tree), main="MSE selon ntree")
+
+
+
+# CHOIX DE NODESIZE PAR CV  -----------------------------------------------------------------------------------
+n_list=seq(from=1,to=10,by=1)  # nodesize à tester
+d=length(n_list)
+nb=1 # nombre de tests de cross validation
+MSE_RF_ES_node=rep(NA,d*nb)
+res_node=rep(NA,nb)   # résultat de la CV qui minimise la MSE
+
+for (j in 1:nb) {
+  
+  for(i in 1:d) {
+    set.seed(1)
+    model <- randomForest(Y~., data=don.train,mtry = which.min(MSE_RF_ES_mtry), ntree=RF_ES_ntree, nodesize = n_list[i])
+    MSE_RF_ES_node[i+j-1] <- mean((Y.test-predict(model,don.test))^2)
+    names(MSE_RF_ES_node)[i] <- paste(as.character(n_list[i]),"node",sep="_")
+  }
+
+  res_node[j]=n_list[which.min(MSE_RF_ES_node)]
+
+}
+
+RF_ES_node = which.min(MSE_RF_ES_node) # 5
+# barplot(MSE_RF_ES_node, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_ES_node) , names = names(MSE_RF_ES_node) ,main="MSE selon nodesize",las=0) 
+
+
+
+# MODELE FINAL  ----------------------------------------------------------------------------------------------
+RF_ES<-randomForest(Y~., mtry = RF_ES_mtry, ntree= RF_ES_ntree, nodesize = RF_ES_node ,data=don.train)
+pred_RF_ES = predict(RF_ES, don.test)
+MSE_RF_ES= mean((Y.test-predict(RF_ES,don.test))^2)
+
+# # résidus : la saisonnalité n'a pas été bien captée: le graphe des résidus est sinusoidal
+res_RF_ES=don.test$Y-RF_ES$predicted
+checkresiduals(res_RF_ES)
+
+# # importances des variables
+# # plot
+# varImpPlot(RF_ES_fin)
+# 
+# # liste variable par importance
+# RF_ES_fin$importance
+# 
+# # liste variable par importance ordonnée
+# RF_ES_fin$importance[order(RF_ES_fin$importance[, 1], decreasing = TRUE), ]
+
+
+
+```
+
+
+
+MODELE SVR
+```{r}
+# Modèle
+SVR_ES = svm(Y~.,don.train)
+pred_SVR_ES = predict(SVR_ES, don.test)
+MSE_SVR_ES= mean((Y.test-predict(SVR_ES,don.test))^2)
+
+# résidus
+# plot(SVR_ES_tot$residuals)
+res_SVR_ES=don.test$Y-pred_SVR_ES
+checkresiduals(res_SVR_ES) # beaucoup d'autocorrélation, la distribution pas centrée
+
+
+
+```
+
+
+
+# MODELE RESEAUX DE NEURONES
+```{r}
+
+# choix des paramètres size et decay par CV avec caret
+controlList <- trainControl(method = "cv", number = 5)
+tuneMatrix <- expand.grid(size = c(1, 2, 3, 4, 5, 6), decay = seq(from = 0, to = 0.5, by=0.1))
+
+set.seed(1)
+NN_ES_cv <- train(x = don.train[ , colnames(don.train) != "Y"],
+                   y = don.train[ , colnames(don.train) == "Y"],
+                   method = "nnet",
+                   linout = TRUE,
+                   trace = FALSE,
+                   maxit = 100,
+                   tuneGrid = tuneMatrix,
+                   trControl = controlList)
+
+
+#  MODELE RETENU
+# print(NN_ES_cv$finalModel)
+set.seed(1)
+NN_ES <- NN_ES_cv$finalModel
+pred_NN_ES <- predict(NN_ES, newdata = don.test)
+MSE_NN_ES <- mean((pred_NN_ES - don.test$Y)^2)
+
+# tune values
+NL_TV=NN_ES_cv$finalModel$tuneValue
+str(NL_TV) #  size (6) et decay (0.2)
+
+
+# résidus
+res_NN_ES=Y.test-pred_NN_ES
+checkresiduals(res_NN_ES[,1]) # la distribution pas centrée, pic au centre
+
+```
+
+
+SYNTHESE DES MODELES 
+
+
+# MSE plot
+```{r}
+
+
+# comparaison des MSE entre les modèles RL, RLI, Poly, Spline, GAM, SVR, NN
+MSE_ES_tot=c(MSE_RL_ES, MSE_RLI_ES, MSE_RLI_ES_multi, MSE_RLI_ES_P2, MSE_POLY_ES, MSE_SP_ES, MSE_GAM_ES_SP, MSE_RF_ES, MSE_SVR_ES, MSE_NN_ES)
+
+# graphe des MSE
+graph<-barplot(MSE_ES_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Espagne",las=0)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF", "SVR", "NN"), at = graph)
+
+```
+
+# MSE minimal
+```{r}
+which.min(MSE_ES_tot) # c'est le modèle NN qui présente la plus petite MSE
+```
+
+# MSE plots meilleurs modèles 
+```{r}
+
+# comparaison des MSE entre les meilleurs modèles, sans P2, Poly simple, Spline simple
+MSE_ES_r=c(MSE_RL_ES, MSE_RLI_ES, MSE_RLI_ES_multi, MSE_GAM_ES_SP, MSE_RF_ES, MSE_SVR_ES, MSE_NN_ES)
+
+# graphe des MSE
+graph<-barplot(MSE_ES_r, xlab="modèles", ylab="MSE",ylim=c(MSE_NN_ES, MSE_RL_ES) ,main="MSE des modèles", las=0)
+axis(1, labels=c("RL", "RLI","multi", "GAM_SP" ,"RF", "SVR", "NN"), at = graph)
+
+
+```
+
+
+objet RF et SVR pas reconnu par stargazer
+```{r}
+# on enlève RLI_P2 ainsi que POLY et Splines simples dont les MSE est plus de 2 fois suppérieure à celle des autres 
+stargazer(RL_ES, RLI_ES, RLI_ES_multi, RLI_ES_P2, GAM_ES_SP, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("RL", "RLI", "multi","P2","GAM"), keep = c("Date"), model.names = TRUE, single.row = TRUE)
+
+# le R² ajusté est le plus élevé pour RLI Multi
+# le residual error est le plus faible pour RLI Multi
+# F-stat est le plus élevé pour GAM
+
+```
+
+
+
+
+# graphe des valeurs prédites selon les modèles
+```{r}
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles Espagne" )
+lines(don.test$Date,pred_RL_ES$fit, col="purple") 
+lines(don.test$Date,pred_RLI_ES$fit, col="orange") 
+lines(don.test$Date,pred_RLI_ES_multi$fit, col="cyan") 
+lines(don.test$Date,pred_POLY_ES$fit, col="pink") 
+lines(don.test$Date,pred_SP_ES$fit, col="green") 
+lines(don.test$Date,pred_GAM_ES_SP$fit, col="bisque")
+lines(don.test$Date, pred_RF_ES, col="red") 
+lines(don.test$Date, pred_SVR_ES, col="blue") 
+lines(don.test$Date, pred_NN_ES, col="aquamarine") 
+
+```
+
+```{r}
+# graphes avec les 3 meilleurs modèles GAM, RF, SVR
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles NN(aquamarine) RF (red) SVR (blue)" )
+lines(don.test$Date, pred_NN_ES, col="aquamarine") 
+lines(don.test$Date, pred_RF_ES, col="red") 
+lines(don.test$Date, pred_SVR_ES, col="blue")
+
+
+
+```
+
+
+```{r}
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles SVR (blue)" )
+lines(don.test$Date, pred_SVR_ES, col="blue")
+
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles RF (red)" )
+lines(don.test$Date, pred_RF_ES, col="red") 
+
+plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="modèles NN(aquamarine)" )
+lines(don.test$Date, pred_NN_ES, col="aquamarine") 
+
+
+```
+
+```{r}
+res_SVR_ES=don.test$Y-pred_SVR_ES
+checkresiduals(res_SVR_ES)
+# résidus moyens, avec quelques autocorrélations et une distribution, non centrée, avec une queue à gauche
+
+```
+
+
+```{r}
+res_RF_ES=don.test$Y-RF_ES$predicted
+checkresiduals(res_RF_ES)
+# résidus pas bons, avec saisonnalité, beaucoup d'autocorrélation
+
+```
+
+
+```{r}
+res_NN_ES=Y.test-pred_NN_ES
+checkresiduals(res_NN_ES[,1]) # la distribution pas centrée, pic au centre, queue à gauche
+
+```
+
+

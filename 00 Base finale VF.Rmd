@@ -13,6 +13,7 @@ Nouvelle base de données
 ("Date", "Pays", "Conso", "tmoy", "month", "year", "day", "weekend", "cosinus", "sinus", "wday", "quarter", "season", "doy", "holidays", "day_length", "jc", "lagholidays", "leadholidays", "tmoy1", "tmoy2", "teff", "seuil", "T00", "Wind_Speed", "Cloud_covering", "Solar_radiation", "Raining_Level", "Pressure")
 
 
+# importation données
 ```{r}
 # packages 
 library(stats)
@@ -31,7 +32,7 @@ str(base_F)
 ```
 
 
-
+# remove outliers
 ```{r}
 
 
@@ -93,16 +94,12 @@ base[as.numeric(format(base$Date, "%m"))==m,i]<-var_name
 ```
 
 
-TRAVAIL SUR LES DONNEES
+# TRAVAIL SUR LES DONNEES
 ```{r}
 
-base_F<-final.formats
+base_F<-data.frame(final.formats)
 # summary(base_F)
 # 29 variables
-
-# noms des variables dans un vecteur
-# dput(names(base_F))
-
 
 # renommer la variable tmoy en Temp (questionr)
 base_F <- rename.variable(base_F, "tmoy", "Temp")
@@ -111,12 +108,8 @@ base_F <- rename.variable(base_F, "tmoy", "Temp")
 # suppression des variables doy (day of year, utilisée pour calculer cosinus et sinus)
 # suppression de tmoy1 et tmoy2 (qui seront crées après avec un autre nom)
 # supression de wday, redondant avec day
-base_F<-base_F[,-which(colnames(base_F)=="doy")] 
-base_F<-base_F[,-which(colnames(base_F)=="tmoy1")] 
-base_F<-base_F[,-which(colnames(base_F)=="tmoy2")]
-base_F<-base_F[,-which(colnames(base_F)=="wday")] 
-dim(base_F)
-
+var_delete <- c(which(colnames(base_F)=="doy"),which(colnames(base_F)=="tmoy1"),which(colnames(base_F)=="tmoy2"),which(colnames(base_F)=="wday"))
+base_F <- base_F[,-var_delete]
 
 # variables à convertir en facteur
 # names_factor=as.vector(c("T00" "month", "year", "day", "weekend", "season","holidays", "jc", "lagholidays", "leadholidays", "Pays"))
@@ -163,7 +156,7 @@ dim(base_F)
 ```
 
 
-bases SANS les autres variables meteo (différentes de temperature)
+# bases SANS les autres variables meteo (différentes de temperature)
 ```{r}
 # 27 variables communes à tous les pays:
 # "Date"  "Pays"  "Conso"  "Temp"  "month"  "year"  "day"  "weekend"  "cosinus"  "sinus"   "wday"            "quarter"   "season"  "holidays" "day_length"  "jc" "lagholidays"  "leadholidays"   t1"   "t2"    "t3"   "t4"   "t5"   "t6"   "t7"   "teff"   "seuil"   "T00"  
@@ -224,7 +217,7 @@ base_FR_F<-na.omit(base_FR_F) # 1504 observations 26 variable
 ```
 
 
-fonction pour centrer réduire
+# fonction pour centrer réduire
 ```{r}
 
 fun_cr <- function (don) {
@@ -249,7 +242,7 @@ fun_cr <- function (don) {
 ```
 
 
-bases centrées réduites
+# bases centrées réduites
 ```{r}
 base_F_6P_cr <- fun_cr(base_F_6P)
 
@@ -261,13 +254,13 @@ base_NL_F_cr <- fun_cr(base_NL_F)
 base_UK_F_cr <- fun_cr(base_UK_F)
 
 
-summary(base_UK_F_cr)
+# summary(base_UK_F_cr)
 
 ```
 
 
 
-bases AVEC les autres variables meteo (différentes de temperature)
+# bases AVEC les autres variables meteo (différentes de temperature)
 ```{r}
 
 # 5 variables météo autre que temp:
@@ -298,7 +291,7 @@ base_BE_F_am=na.omit((base_BE_F_am))
 # base centrée réduite
 base_BE_F_am_cr <- fun_cr (base_BE_F_am)
 
-summary(base_BE_F_am_cr)
+# summary(base_BE_F_am_cr)
 
 ```
 

@@ -12,8 +12,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Nhu-Nguyen packages
 ```{r}
+
 # DONNEES VISUALISATION
-library(stargazer)      # présentation synthétique de différents modèles sauf Random forest et SVR
+library(stargazer)
 library(ggplot2)
 library(questionr)
 library(dplyr)
@@ -22,6 +23,7 @@ library(dummies)        # création de variables dummies (pour bestglm)
 library(forecast)       # plot sympa des résidus
 library(corrplot)       # plot de la matrice de corrélation
 library(PerformanceAnalytics)
+
 
 # TREE
 library(rpart)				  # Popular decision tree algorithm
@@ -44,9 +46,13 @@ library(caret)
 # CLUSTERING
 library(cluster)
 library(fastcluster)
+library(ade4)
+library(FactoMineR)
+
 
 
 # MODELES
+library(MASS) # LDA
 library(ISLR)
 library(glmnet)         # Poly, GAM
 library(boot)           # boostraping
@@ -56,11 +62,13 @@ library(randomForest)
 library(e1071)          # SVR
 library(nnet)           # reseau neurones
 library(neuralnet)
+library(mlbench)
+library(gbm)
+library(xgboost)
 
 # paralellisation
 library(doParallel)
 library(foreach)
-
 
 
 ```
