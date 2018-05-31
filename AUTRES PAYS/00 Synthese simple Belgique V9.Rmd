@@ -1,0 +1,627 @@
+---
+title: "Synthese Belgique simplifiee"
+author: "Nhu-Nguyen Ngo"
+date: "16 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+remplacer nom fichier
+remplacer title
+remplacer base: base_BE_F
+remplacer suffixe: _BE
+remplacer nom: Belgique
+
+
+# PACKAGES
+```{r}
+
+# DONNEES VISUALISATION
+library(stargazer)
+library(ggplot2)
+library(questionr)
+library(dplyr)
+library(lubridate)      # pour les dates
+library(dummies)        # creationn de variables dummies (pour bestglm)
+library(forecast)       # plot sympa des residus
+library(corrplot)       # plot de la matrice de correlation
+library(PerformanceAnalytics)
+
+
+# TREE
+library(rpart)				  # Popular decision tree algorithm
+library(rattle)					# Fancy tree plot
+library(rpart.plot)			# Enhanced tree plots
+library(RColorBrewer)		# Color selection for fancy tree plot
+library(party)					# Alternative decision tree algorithm
+library(partykit)				# Convert rpart object to BinaryTree
+
+
+# selection de variable
+library(bestglm)
+library(leaps)          # regsubset
+
+
+# cross validation
+library(stats)          # fonction glm
+library(caret)
+
+# CLUSTERING
+library(cluster)
+library(fastcluster)
+library(ade4)
+library(FactoMineR)
+
+
+
+# MODELES
+library(MASS) # LDA
+library(ISLR)
+library(glmnet)         # Poly, GAM
+library(boot)           # boostraping
+library(splines)
+library(caTools)
+library(randomForest)
+library(e1071)          # SVR
+library(nnet)           # reseau neurones
+library(neuralnet)
+library(mlbench)
+library(gbm)
+library(xgboost)
+
+# paralellisation
+library(doParallel)
+library(foreach)
+
+
+```
+
+
+
+# BASE DE DONNEES ET FORMATAGE VARIABLES TRAIN TEST 
+```{r}
+
+# sur la base centree reduite, sans les autres variables meteo
+don <- base_BE_F_cr
+dim(don)
+
+# suppression des variales liees a la temperature teff, seuil, T00
+var_delete <- c(which(colnames(don)== "teff"),which(colnames(don)== "seuil"),which(colnames(don)== "T00"))
+don<-don[,-var_delete] 
+head(don)
+
+# creation des variables Y (variable cible)
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+
+# Creation de l'echantillon train 80 et test 20
+set.seed(1)
+dim<-nrow(don)
+split=0.8
+train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+
+don.train_BE=don[train,]
+don.test_BE=don[-train,]
+
+# variables pour modeles polynomial et splines
+Y=don$Y 
+Y.train_BE=Y[train]
+Y.test_BE=Y[-train]
+
+# matrice avec que les variables predictives
+donX=don[, which(colnames(don)!="Y")]
+donX.train_BE=donX[train,]
+donX.test_BE=donX[-train,]
+
+# model matrice sur base de test
+test_BE=model.matrix(Y~.,data=don[-train,])
+
+
+
+```
+
+
+# fonction mape Mean Absolute Percentage Error
+MAPE ne semble pas adapte pour les donnees centrees reduites, car le denominateur peut être souvent proche de zero. Il faudrait plutot utiliser le MASE (mean absolute scaled error). Mais accuracy ne reconnaît pas les modeles random forest , SVR, NN, XGB
+
+```{r}
+# Y variable cible
+# model = fit du model
+# don.test_BE : base de test
+
+
+fun_mse <- function (Y.test_BE, model, don.test_BE) {
+  mse <- mean((Y.test_BE-predict(model,don.test_BE))^2)
+  return(mse)
+}
+
+
+
+
+fun_mape = function (Y,model, don.test_BE) {
+  error <- Y-predict(model,don.test_BE)
+  mape <- mean(abs(error/Y))*100
+  return(mape)
+}
+
+
+
+
+fun_mase = function (model) {
+  acc <- accuracy(model)
+  MASE <- acc [[6]]
+  return(MASE)
+}
+
+
+```
+
+
+# MODELES OLS
+```{r}
+
+# SANS INTERACTION ============================================================================================================================
+
+# modele lineaire entre Y  et Temp et les variables month, year, day
+RL_BE <- lm(Y~  Temp + month + year + day, data=don.train_BE)
+pred_RL_BE=predict(RL_BE, newdata=don.test_BE, se=T)
+MSE_RL_BE= mean((Y.test_BE-predict(RL_BE,don.test_BE))^2)
+# MAPE_RL_BE = fun_mape(Y.test_BE,RL_BE, don.test_BE)
+
+
+# residus
+plot(RL_BE)
+checkresiduals(RL_BE)
+
+# AVEC INTERACTION ============================================================================================================================
+
+
+# modele lineaire avec interaction entre Temp et les variables month, year, day ----------------------------------------------------------------
+RLI_BE <- lm(Y~(month + year + day)*Temp ,data=don.train_BE)
+pred_RLI_BE=predict(RLI_BE, newdata=don.test_BE, se=T)
+MSE_RLI_BE= mean((Y.test_BE-predict(RLI_BE,don.test_BE))^2)
+# MAPE_RLI_BE = fun_mape(Y.test_BE,RLI_BE, don.test_BE)
+
+# residus
+plot(RLI_BE)
+checkresiduals(RLI_BE)
+
+
+# modele lineaire avec interaction multiples entre les variables (Temp  et ses lags t1 a t7) et les variables month, year, day ------------------
+RLI_BE_multi <- lm(Y~(month + year + day)* (Temp + t1 + t2 + t3 + t4 + t5 + t6 + t7), data=don.train_BE) 
+pred_RLI_BE_multi=predict(RLI_BE_multi, newdata=don.test_BE, se=T)
+MSE_RLI_BE_multi= mean((Y.test_BE-predict(RLI_BE_multi,don.test_BE))^2)
+# MAPE_RLI_BE_multi = fun_mape(Y.test_BE,RLI_BE_multi, don.test_BE)
+
+# residus
+plot(RLI_BE_multi)
+checkresiduals(RLI_BE_multi)
+
+
+# modele lineaire avec interaction entre poly(Temp,2) et les autres variables ----------------------------------------------------------------
+RLI_BE_P2<-lm(Y~ (month + year + day)*I(poly(Temp, 2)), data=don.train_BE) 
+pred_RLI_BE_P2=predict(RLI_BE_P2, newdata=don.test_BE, se=T)
+MSE_RLI_BE_P2= mean((Y.test_BE-predict(RLI_BE_P2,don.test_BE))^2)
+# MAPE_RLI_BE_P2 = fun_mape(Y.test_BE,RLI_BE_P2, don.test_BE)
+
+# residus
+plot(RLI_BE_P2)
+checkresiduals(RLI_BE_P2)
+
+```
+
+
+
+# MODELE POLYNOMIAL SIMPLE
+Conso en fonction d'un polynome de Temp
+```{r}
+
+# choix du degre du polynome choisi par CV (hold out et k_fold) en minimisant le MSE
+d=20 # degre max de polynome a tester
+err_poly_BE=rep(NA,d)
+for(i in 1:d) {
+  model <- lm(formula=Y~poly(Temp,i, raw=T), data=don.train_BE)
+  err_poly_BE[i] <- mean((Y.test_BE-predict(model,don.test_BE))^2)
+  }
+
+# plot(err_poly_BE,ylab="MSE", main=' MSE Belgique selon le degre de polynome',pch=19,type='b')
+
+poly_BE_deg=which.min(err_poly_BE) 
+poly_BE_deg 
+
+
+# MODELE RETENU
+POLY_BE<- lm(formula=Y~poly(Temp,poly_BE_deg, raw=T), data=don.train_BE)
+pred_POLY_BE=predict(POLY_BE, newdata=don.test_BE, se=T) 
+MSE_POLY_BE= mean((Y.test_BE-predict(POLY_BE,don.test_BE))^2)
+# MAPE_POLY_BE = fun_mape(Y.test_BE,POLY_BE, don.test_BE)
+
+# residus
+plot(POLY_BE)
+checkresiduals(POLY_BE)
+
+```
+
+
+
+# MODELES SPLINES SIMPLE
+Conso en fonction d'un spline de Temp
+```{r}
+# pour natural spline CV pour choisir le degre de liberte (donc le nombre de noeuds) qui minimise le MSE
+DF=15 # df max a tester
+MSE_SP_BE_CV=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(Temp,df=i), data=don.train_BE)
+  MSE_SP_BE_CV[i] <- mean((Y.test_BE-predict(model,don.test_BE))^2)
+  }
+
+# plot(sqrt(MSE_SP_BE_CV),ylab="MSE", main=' MSE Belgique selon le degre de liberte du spline',pch=19,type='b')
+
+# On choisit le modele qui a la MSE la plus petite sur le test set
+SP_BE_df=which.min(MSE_SP_BE_CV)
+SP_BE_df 
+
+attr(ns(don$Temp,df=SP_BE_df),"knots") #  noeuds
+
+# modele retenu: natural spline
+SP_BE <- lm ( Y~ ns(Temp, df = SP_BE_df), data=don.train_BE)
+pred_SP_BE=predict(SP_BE, newdata=don.test_BE, se=T)
+MSE_SP_BE= mean((Y.test_BE-predict(SP_BE,don.test_BE))^2)
+# MAPE_SP_BE = fun_mape(Y.test_BE,SP_BE, don.test_BE)
+
+# residus
+plot(SP_BE)
+checkresiduals(SP_BE)
+
+```
+
+
+
+# MODELE GAM SPLINE
+Conso en fonction d'un spline sur Temp et la somme des variables month, year, day
+```{r}
+# pour natural spline, recherche degre df qui minimise le MSE
+DF=15 # df max a tester
+MSE_GAM_BE_SP_CV=rep(0,DF)
+for(i in 1:DF) {
+  model <- lm(Y~ns(Temp,df=i) + month + year + day, data=don.train_BE)
+  MSE_GAM_BE_SP_CV[i] <- mean((Y.test_BE-predict(model,don.test_BE))^2)
+  }
+
+# Plot(MSE_GAM_BE_SP_CV, ylab="MSE", main=' MSE Belgique selon le degre de liberte du spline',pch=19,type='b')
+
+# On choisit le DF qui a la MSE la plus petite sur le test set
+GAM_BE_SP_df=which.min(MSE_GAM_BE_SP_CV)
+GAM_BE_SP_df # 
+attr(ns(don$Temp,df=GAM_BE_SP_df),"knots") #  noeuds 
+
+# modele GAM retenu par MSe
+GAM_BE_SP=lm(Y~ns(Temp,df=GAM_BE_SP_df) + month + year + day, data=don.train_BE)
+pred_GAM_BE_SP=predict(GAM_BE_SP, newdata=don.test_BE, se=T)
+MSE_GAM_BE_SP= mean((Y.test_BE-predict(GAM_BE_SP,don.test_BE))^2)
+# MAPE_GAM_BE_SP = fun_mape(Y.test_BE,GAM_BE_SP, don.test_BE)
+
+# residus
+plot(GAM_BE_SP)
+checkresiduals(GAM_BE_SP)
+
+```
+
+
+
+# MODELE RANDOM FOREST
+avec mtry, ntree et nodesize choisis par CV hold out
+```{r}
+
+# CHOIX DE MTRY PAR CV -----------------------------------------------------------------------------------
+set.seed(1)
+m=15 # mtry max a tester. 
+MSE_RF_BE_mtry=rep(0,m)
+for(i in 1:m) {
+  set.seed(1)
+  model <- randomForest(Y~., data=don.train_BE, mtry = i)
+  MSE_RF_BE_mtry[i] <- mean((Y.test_BE-predict(model,don.test_BE))^2)
+  }
+
+RF_BE_mtry= which.min(MSE_RF_BE_mtry) 
+RF_BE_mtry  
+# plot(MSE_RF_BE_mtry, xlab="mtry", ylab="MSE", main="MSE selon mtry", type="b")
+
+
+
+# CHOIX DE NTREE PAR CV  -----------------------------------------------------------------------------------
+Ntree=seq(100,1000,by=100)  # ntree a tester
+d=length(Ntree)
+nb=1 # nombre de tests de cross validation
+MSE_RF_BE_tree=rep(NA,d*nb)
+res_ntree=rep(NA,nb)   # resultat de la CV, ntree qui minimise la MSE
+
+for (j in 1:nb) {
+
+  for(i in 1:d) {
+    set.seed(1)
+    model <- randomForest(Y~., data=don.train_BE, mtry = RF_BE_mtry, ntree=Ntree[i])
+    MSE_RF_BE_tree[i+j-1] <- mean((don.test_BE$Y-predict(model,don.test_BE))^2)
+  }
+
+  res_ntree[j]=Ntree[which.min(MSE_RF_BE_tree)]
+
+}
+
+RF_BE_ntree = Ntree[which.min(MSE_RF_BE_tree)] 
+RF_BE_ntree
+# barplot(MSE_RF_BE_tree, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_BE_tree), main="MSE selon ntree")
+
+
+
+# CHOIX DE NODESIZE PAR CV  -----------------------------------------------------------------------------------
+n_list=seq(from=1,to=10,by=1)  # nodesize a tester
+d=length(n_list)
+nb=1 # nombre de tests de cross validation
+MSE_RF_BE_node=rep(NA,d*nb)
+res_node=rep(NA,nb)   # resultat de la CV qui minimise la MSE
+
+for (j in 1:nb) {
+  
+  for(i in 1:d) {
+    set.seed(1)
+    model <- randomForest(Y~., data=don.train_BE,mtry = which.min(MSE_RF_BE_mtry), ntree=RF_BE_ntree, nodesize = n_list[i])
+    MSE_RF_BE_node[i+j-1] <- mean((Y.test_BE-predict(model,don.test_BE))^2)
+    names(MSE_RF_BE_node)[i] <- paste(as.character(n_list[i]),"node",sep="_")
+  }
+
+  res_node[j]=n_list[which.min(MSE_RF_BE_node)]
+
+}
+
+RF_BE_node = which.min(MSE_RF_BE_node)
+RF_BE_node 
+# barplot(MSE_RF_BE_node, xlab="node", ylab="MSE", ylim = range(MSE_RF_BE_node) , names = names(MSE_RF_BE_node) ,main="MSE selon nodesize",las=0)
+
+
+
+# MODELE FINAL  ----------------------------------------------------------------------------------------------
+RF_BE<-randomForest(Y~., mtry = RF_BE_mtry, ntree= RF_BE_ntree, nodesize = RF_BE_node ,data=don.train_BE)
+pred_RF_BE = predict(RF_BE, don.test_BE)
+MSE_RF_BE= mean((Y.test_BE-predict(RF_BE,don.test_BE))^2)
+# MAPE_RF_BE = fun_mape(Y.test_BE,RF_BE, don.test_BE)
+
+# # residus : la saisonnalite n'a pas ete bien captee: le graphe des residus est sinusoidal
+res_RF_BE=don.test_BE$Y-RF_BE$predicted
+checkresiduals(res_RF_BE)
+
+# # importances des variables
+# # plot
+# varImpPlot(RF_BE_fin)
+# 
+# # liste variable par importance
+# RF_BE_fin$importance
+# 
+# # liste variable par importance ordonnee
+# RF_BE_fin$importance[order(RF_BE_fin$importance[, 1], decreasing = TRUE), ]
+
+
+
+```
+
+
+
+MODELE SVR
+```{r}
+# modele
+SVR_BE = svm(Y~.,don.train_BE)
+pred_SVR_BE = predict(SVR_BE, don.test_BE)
+MSE_SVR_BE= mean((Y.test_BE-predict(SVR_BE,don.test_BE))^2)
+# MAPE_SVR_BE = fun_mape(Y.test_BE,SVR_BE, don.test_BE)
+
+# residus
+# plot(SVR_BE_tot$residuals)
+res_SVR_BE=don.test_BE$Y-pred_SVR_BE
+checkresiduals(res_SVR_BE) 
+
+
+
+```
+
+
+
+# MODELE RESEAUX DE NEURONES
+```{r}
+
+# choix des parametres size et decay par CV avec caret
+controlList <- trainControl(method = "cv", number = 5)
+tuneMatrix <- expand.grid(size = c(1, 2, 3, 4, 5, 6), decay = seq(from = 0, to = 0.5, by=0.1))
+
+set.seed(1)
+NN_BE_cv <- train(x = don.train_BE[ , colnames(don.train_BE) != "Y"],
+                   y = don.train_BE[ , colnames(don.train_BE) == "Y"],
+                   method = "nnet",
+                   linout = TRUE,
+                   trace = FALSE,
+                   maxit = 100,
+                   tuneGrid = tuneMatrix,
+                   trControl = controlList)
+
+
+#  MODELE RETENU
+# print(NN_BE_cv$finalModel)
+set.seed(1)
+NN_BE <- NN_BE_cv$finalModel
+pred_NN_BE <- predict(NN_BE, newdata = don.test_BE)
+MSE_NN_BE <- mean((pred_NN_BE - don.test_BE$Y)^2)
+# MAPE_NN_BE = fun_mape(Y.test_BE, NN_BE, don.test_BE)
+
+# tune values
+NL_TV=NN_BE_cv$finalModel$tuneValue
+str(NL_TV) #  size et decay 
+
+
+# residus
+res_NN_BE=Y.test_BE-pred_NN_BE
+checkresiduals(res_NN_BE[,1]) # la distribution n'est pas vraiment gaussienne
+
+```
+
+
+# XGBOOST
+```{r}
+
+don <- base_BE_F_cr
+
+# creation des variables Y (variable cible) 
+don<- rename.variable(don, "Conso", "Y")
+head(don)
+
+# nom des variables facteurs a convertir en dummies variables
+ohe_vars <- names(don)[which(sapply(don, is.factor))]
+
+# conversion en en dummies variables
+dummies <- dummyVars(~., data = don)
+don_ohe <- as.data.frame(predict(dummies, newdata = don))
+
+# remplacer les variables facteurs par les dummies
+don <- cbind(don[, -c(which(colnames(don) %in% ohe_vars))], don_ohe)
+
+# Creation de l'echantillon train et test
+Xtrain <- don[train, ]
+Xtest <- don[-train, ]
+
+# modelisation
+XGB_BE <- xgboost(data = data.matrix(Xtrain), label = Xtrain$Y,
+  booster = "gbtree", objective = "reg:linear", eval_metric = "rmse",
+  learning_rate = 0.05, 
+  subsample = 0.5, seed = 1, # subsample default value=1. Setting to 0.5 means that XGBoost randomly collected half of the data instances to grow trees and this will prevent overfitting. 
+  silent = 1, nrounds = 500, verbose = 0)
+
+# prediction
+pred_XGB_BE= predict(XGB_BE, data.matrix(Xtest))
+MSE_XGB_BE=mean((Y.test_BE-pred_XGB_BE)^2)
+# MAPE_XGB_BE = fun_mape(Y.test_BE, XGB_BE, data.matrix(Xtest))
+
+plot(don.test_BE$Date, Y.test_BE, xlab = "date", ylab="Conso", main="XGB Belgique" )
+lines(don.test_BE$Date,pred_XGB_BE, col="purple") 
+
+# residus
+checkresiduals(Y.test_BE-pred_XGB_BE)
+
+```
+
+
+
+SYNTHESE DES MODELES 
+
+
+# MSE plot
+```{r}
+
+# comparaison des MSE entre les modeles 
+MSE_BE_tot=c(MSE_RL_BE, MSE_RLI_BE, MSE_RLI_BE_multi, MSE_RLI_BE_P2, MSE_POLY_BE, MSE_SP_BE, MSE_GAM_BE_SP, MSE_RF_BE, MSE_SVR_BE, MSE_NN_BE, MSE_XGB_BE)
+
+# graphe des MSE
+graph<-barplot(MSE_BE_tot, xlab="modeles", ylab="MSE", main="MSE des modeles Belgique",las=0)
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB"), at = graph)
+
+```
+
+# MSE minimal
+```{r}
+which.min(MSE_BE_tot) # c'est le modele XGB qui presente la plus petite MSE
+```
+
+# MSE plots 5 meilleurs modeles 
+```{r}
+
+MSE_BE_r=c(MSE_RLI_BE_multi, MSE_RF_BE, MSE_SVR_BE, MSE_NN_BE, MSE_XGB_BE)
+
+# graphe des MSE
+graph<-barplot(MSE_BE_r, xlab="modeles", ylab="MSE",ylim=c(MSE_XGB_BE, MSE_RLI_BE) ,main="MSE des modeles", las=0)
+axis(1, labels=c("multi", "RF", "SVR", "NN", "XGB"), at = graph)
+
+
+```
+
+
+objets RF, SVR, NN, XGB non reconnus par stargazer
+```{r}
+# on enleve RLI_P2 ainsi que POLY et Splines simples dont les MSE est plus de 2 fois supperieure a celle des autres 
+stargazer(RL_BE, RLI_BE, RLI_BE_multi, RLI_BE_P2, GAM_BE_SP, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("RL", "RLI", "multi","P2","GAM"), keep = c("Date"), model.names = TRUE, single.row = TRUE)
+
+# le R² ajuste est le plus eleve pour RLI Multi
+# le residual error est le plus faible pour RLI Multi
+# F-stat est le plus eleve pour GAM
+
+```
+
+
+
+
+# graphe des valeurs predites selon les modeles
+```{r}
+
+plot(don.test_BE$Date, don.test_BE$Y, xlab = "date", ylab="Conso", main="modeles Belgique" )
+lines(don.test_BE$Date,pred_RL_BE$fit, col="purple") 
+lines(don.test_BE$Date,pred_RLI_BE$fit, col="orange") 
+lines(don.test_BE$Date,pred_RLI_BE_multi$fit, col="cyan") 
+lines(don.test_BE$Date,pred_POLY_BE$fit, col="pink") 
+lines(don.test_BE$Date,pred_SP_BE$fit, col="green") 
+lines(don.test_BE$Date,pred_GAM_BE_SP$fit, col="bisque")
+lines(don.test_BE$Date, pred_RF_BE, col="red") 
+lines(don.test_BE$Date, pred_SVR_BE, col="blue") 
+lines(don.test_BE$Date, pred_NN_BE, col="aquamarine") 
+
+```
+
+```{r}
+# graphes avec les 3 meilleurs modeles XGB, SVR, NN
+plot(don.test_BE$Date, don.test_BE$Y, xlab = "date", ylab="Conso", main="modeles NN(aquamarine) RF (red) SVR (blue)" )
+lines(don.test_BE$Date, pred_NN_BE, col="aquamarine") 
+lines(don.test_BE$Date, pred_XGB_BE, col="tomato") 
+lines(don.test_BE$Date, pred_SVR_BE, col="blue")
+
+
+
+```
+
+
+```{r}
+plot(don.test_BE$Date, don.test_BE$Y, xlab = "date", ylab="Conso", main="modeles XGB (tomato)" )
+lines(don.test_BE$Date, pred_XGB_BE, col="tomato")  
+
+plot(don.test_BE$Date, don.test_BE$Y, xlab = "date", ylab="Conso", main="modeles SVR (blue)" )
+lines(don.test_BE$Date, pred_SVR_BE, col="blue")
+
+plot(don.test_BE$Date, don.test_BE$Y, xlab = "date", ylab="Conso", main="modeles NN(aquamarine)" )
+lines(don.test_BE$Date, pred_NN_BE, col="aquamarine") 
+
+
+```
+
+
+residus XGB
+```{r}
+checkresiduals(Y.test_BE-pred_XGB_BE)
+
+
+```
+
+residus SVR
+```{r}
+res_SVR_BE=don.test_BE$Y-pred_SVR_BE
+checkresiduals(res_SVR_BE)
+
+
+```
+
+residus reseaux neurones
+```{r}
+res_NN_BE=Y.test_BE-pred_NN_BE
+checkresiduals(res_NN_BE[,1]) 
+
+```
+
+
+
