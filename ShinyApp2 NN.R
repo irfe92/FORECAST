@@ -6,11 +6,13 @@
 # les scripts suivants (base_finale, les scripts synthèses par pays)
 # Chargement des données résultent des modèles ARIMA et GAM (IRINA)
 
-gam_model_list <-get(load("C:/Trav/ProjetCDS_ENSAE/FORECAST/gam_model_list.rdata"))
-dated_gam_model_list <-get(load("C:/Trav/ProjetCDS_ENSAE/FORECAST/dated_gam_model_list.rdata"))
+# gam_model_list <-get(load("F:/Projet/forecast3/Irina/gam_model_list.rdata"))
+# dated_gam_model_list <-get(load("F:/Projet/forecast3/Irina/dated_gam_model_list.rdata"))
 
-arima_model_list <-get(load("C:/Trav/ProjetCDS_ENSAE/FORECAST/arima_model_list.rdata"))
-dated_arima_model_list <-get(load("C:/Trav/ProjetCDS_ENSAE/FORECAST/dated_arima_model_list.rdata"))
+# arima_model_list <-get(load("F:/Projet/forecast3/Irina/arima_model_list.rdata"))
+# dated_arima_model_list <-get(load("F:/Projet/forecast3/Irina/dated_arima_model_list.rdata"))
+
+
 
 ########Application de visualisation shiny
 

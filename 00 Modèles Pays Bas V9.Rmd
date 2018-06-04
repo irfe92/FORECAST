@@ -1,5 +1,5 @@
 ---
-title: "Modeles NL Pays Bas test 33%"
+title: "Modeles NL Pays Bas"
 author: "Nhu-Nguyen Ngo"
 date: "27 avril 2018"
 output: html_document
@@ -9,18 +9,14 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-remplacer nom fichier
-remplacer title
-remplacer base: base_NL_F par base_NL_F
-remplacer suffixe: _NL par _NL
-remplacer nom:  Pays Bas par Pays Bas
+
 
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # PACKAGES BASE ET VARIABLES
 
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-
+## load PACKAGES
 ```{r}
 
 # DONNEES VISUALISATION
@@ -33,7 +29,10 @@ library(dummies)        # création de variables dummies (pour bestglm)
 library(forecast)       # plot sympa des résidus
 library(corrplot)       # plot de la matrice de corrélation
 library(PerformanceAnalytics)
-
+library(stringr)
+library(lattice)
+library(ROCR)
+library(pROC)
 
 # TREE
 library(rpart)				  # Popular decision tree algorithm
@@ -50,13 +49,17 @@ library(leaps)          # regsubset
 
 
 # cross validation
-library(stats)          # fonction glm
-library(caret)
+library(stats)          # fonction glm, kmeans
+library(caret)          # CV, matrice de confusion
+library(boot)           # fonction cv.glm pour cross validation
 
-# CLUSTERING
+# CLUSTERING, classification
 library(cluster)
 library(fastcluster)
-
+library(FactoMineR) # ACP
+library(MASS) # LDA
+library(ade4)
+library(klaR) # LDA, stepclass: stepwise variable selection for classification, direction="both", "forward", "backward". Method = "lda"
 
 # MODELES
 library(ISLR)
@@ -70,14 +73,16 @@ library(nnet)           # reseau neurones
 library(neuralnet)
 library(mlbench)
 library(gbm)
-library(xgboost)
+library(xgboost) # boosting regression lineraire, logistique
+library(C50)
+
 
 # paralellisation
 library(doParallel)
-library(foreach)
-
+library(foreach)    # baggigng, parallisation
 
 ```
+
 
 
 # fonctions performance
@@ -98,7 +103,7 @@ fun_mape = function (Y,model, don.test) {
   mape <- mean(abs(error/Y))*100
   return(mape)
 }
-# mape pas adapté quand Y proche de zéro, ce qui peut être le cas avec des données centrées réduites
+# mape pas adapté quand Y proche de zéro, ce qui peut être souvent le cas avec des données centrées réduites
 
 
 fun_mase = function (model) {
@@ -184,9 +189,9 @@ names(don)
 
 
 
-SELECTION EXHAUSTIVE: A EVITER car P GRAND !! (ici 27 variables trop grand)
+## SELECTION EXHAUSTIVE: A EVITER car P GRAND !! (ici 27 variables trop grand)
 
-## SELECTION DE VARIABLES AVEC REGSUBSET forward
+## SELECTION AVEC REGSUBSET forward
 ```{r}
 
 # FORWARD SELECTION: NB pas assuré d'avoir le modèle optimal, mais possible si n<p
@@ -218,7 +223,7 @@ FW_NL_formule_best <- Y ~Temp + cosinus + sinus + day_length + t2 + t4 + t6 + t7
 ```
 
 
-## SELECTION DE VARIABLES AVEC REGSUBSET FW comparaison BIC R² et Cp graphes
+## SELECTION FW comparaison BIC R² et Cp graphes
 ```{r}
 
 # Afin de nous aider à choisir le modèle à sélectionner, identifier l'emplacement du point maximum / minimum pour chaque critère : $RSS$, $R^2$ ajusté, $C_p$ et $BIC$. Dans chaque cas, afficher les variables sélectionnées.
@@ -259,7 +264,7 @@ FW_NL_formule_BIC = Y ~ Temp + cosinus + sinus + day_length + t4 + t6 + Date + m
 
 
 
-## SELECTION DE VARIABLES AVEC REGSUBSET backward
+## SELECTION AVEC REGSUBSET backward
 ```{r}
 # selection variables BACKWARD: NB pas assuré d'avoir le modèle optimal,pas possible si n<p
 
@@ -291,7 +296,7 @@ BW_NL_formule_best <- Y ~ Temp + cosinus + sinus + day_length + t2 + t4 + t6 + D
 
 
 
-## SELECTION DE VARIABLES AVEC REGSUBSET FW comparaison BIC R² et Cp graphes
+## SELECTION FW comparaison BIC R² et Cp graphes
 ```{r}
 
 reg.summary<-summary(best_BW_NL)
@@ -345,7 +350,7 @@ lines(x, y2, col = "red")
 
 
 
-# Etude des correlations
+# ETUDE DES CORRELATIONS
 ```{r}
 don <- base_NL_F_cr
 
@@ -377,7 +382,8 @@ corrplot(cor(don.quant), type="upper", order="hclust", tl.col="black", tl.srt=45
 
 
 
-# BASE DONNEES MODELES SANS les variables liées à Temp: TEFF T00 SEUIL
+# BASE DONNEES MODELES 
+SANS les variables liées à Temp: TEFF T00 SEUIL
 ```{r}
 
 
@@ -386,16 +392,18 @@ don <- base_NL_F_cr
 dim(don)
 head(don)
 
-# suppression des variales liées à la température teff, seuil, T00
+# suppression des variales liees a la temperature teff, seuil, T00
 var_delete <- c(which(colnames(don)== "teff"),which(colnames(don)== "seuil"),which(colnames(don)== "T00"))
 don<-don[,-var_delete] 
 head(don)
+
+
 
 # creation des variables Y (variable cible) et X
 don<- rename.variable(don, "Conso", "Y")
 head(don)
 
-# Creation de l'echantillon train 2/3 et test 1/3
+# Creation de l'echantillon train et test
 set.seed(1)
 dim<-nrow(don)
 split=0.8
@@ -480,15 +488,15 @@ for ( i in 2: dim_coef) { formule <- paste ( formule,"+",RL_NL_init_var[i] ) } #
 formule
 
 # en ne gardant que les variables significatives
-RL_NL_init_sign <- lm(Y ~ Temp + cosinus + sinus + day_length + t4 + t6 + month+ day + lagholidays + leadholidays, data=don.train)
+RL_NL_init_sign <- lm(Y ~ Temp + cosinus + sinus + day_length + t4 + t6 + month+ day +lagholidays + leadholidays, data=don.train)
 summary(RL_NL_init_sign)
 
 # analyse variances
 anova(RL_NL_init_sign)
-# les variables significatives sont Temp, cosinus, day_length, t6, month, day, lagholidays, leadholidays
+# le modelee est significatif pour Temp, cosinus, day_length, t6, month, day, lagholidays, leadholidays
 
 # résidus
-plot(RL_NL_init_sign) # plot residus vs fitted incurvee
+plot(RL_NL_init_sign) # plot residus vs fitted avec une structure incurvee
 checkresiduals(RL_NL_init_sign) # distribution presque gaussienne, quelques autocorrelations
 
 # prédictions
@@ -696,7 +704,9 @@ diff_min_max_RLI_NL # 3.1% d'écart
 
 # modèle retenu : fin=tot
 RLI_NL <-RLI_NL_tot 
-# le graphe des résidus a moins de structure
+pred_RLI_NL=predict(RLI_NL, newdata=don.test, se=T)
+MSE_RLI_NL= mean((Y.test-predict(RLI_NL,don.test))^2)
+# le graphe des résidus presente moins de structure
 plot(RLI_NL)
 
 
@@ -809,6 +819,8 @@ diff_min_max_RLI_NL_multi # 6.3% d'écart
 
 # modèle retenu : 
 RLI_NL_multi <- RLI_NL_multi_fin
+pred_RLI_NL_multi=predict(RLI_NL_multi, newdata=don.test, se=T)
+MSE_RLI_NL_multi= mean((Y.test-predict(RLI_NL_multi,don.test))^2)
 
 # le graphe des résidus n'a plus de structure
 plot(RLI_NL_multi)
@@ -933,6 +945,8 @@ diff_min_max_RLI_NL_P2 # 1.3% d'écart
 ```{r}
 
 RLI_NL_P2 <- RLI_NL_P2_fin
+pred_RLI_NL_P2=predict(RLI_NL_P2, newdata=don.test, se=T)
+MSE_RLI_NL_P2= mean((Y.test-predict(RLI_NL_P2,don.test))^2)
 
 # le graphe des résidus n'a plus de structure incurvée
 plot(RLI_NL_P2)
@@ -1184,8 +1198,10 @@ which.min(POLY_NL_compar)
 # nous retiendrons poly_NL_HO sur le critère du MSE
 poly_NL_deg = poly_NL_deg_HO
 POLY_NL<- poly_NL_HO
-POLY_NL_sum<- summary(POLY_NL)
-MSE_POLY_NL_tot= mean((Y.test-predict(POLY_NL,don.test))^2)
+pred_POLY_NL=predict(POLY_NL, newdata=don.test, se=T) 
+MSE_POLY_NL= mean((Y.test-predict(POLY_NL,don.test))^2)
+
+
 
 ```
 
@@ -1387,11 +1403,11 @@ plot(GAM_NL_POLY_error, main="GAM Pays Bas cv.error selon degré polynome",pch=1
 
 GAM_NL_POLY_deg = which.min(GAM_NL_POLY_error) 
 GAM_NL_POLY_deg
-# 6
+
 
 ```
 
-GAM POLY modèle retenu 
+GAM POLY 
 ```{r}
 
 # modèle GAM avec polynôme sur la température 
@@ -1440,6 +1456,8 @@ GAM POLY modèle retenu, résidus
 
 # modèle retenu : 
 GAM_NL_POLY <- GAM_NL_POLY_tot
+pred_GAM_NL_POLY=predict(GAM_NL_POLY, newdata=don.test, se=T)
+MSE_GAM_NL_POLY= mean((Y.test-predict(GAM_NL_POLY,don.test))^2)
 
 # le graphe des résidus est encore légèrement incurvé
 plot(GAM_NL_POLY)
@@ -1513,6 +1531,8 @@ GAM POLY modèle retenu, résidus
 
 # modèle retenu : 
 GAM_NL_SP <- GAM_NL_SP_tot
+pred_GAM_NL_SP=predict(GAM_NL_SP, newdata=don.test, se=T)
+MSE_GAM_NL_SP= mean((Y.test-predict(GAM_NL_SP,don.test))^2)
 
 # le graphe des résidus est encore légèrement incurvé
 plot(GAM_NL_SP)
@@ -1599,14 +1619,9 @@ for(i in 1:m) {
 # graphe de MSE
 plot(MSE_RF_NL_mtry, xlab="mtry", ylab="MSE", main="MSE selon mtry", type="b")
 
-```
-
-RANDOM FOREST choix de mtry par CV résultats
-```{r}
 
 RF_NL_mtry= which.min(MSE_RF_NL_mtry) 
 RF_NL_mtry
-  # 8
 
 ```
 
@@ -1638,7 +1653,7 @@ res_ntree
 
 
 # graphe des MSE du choix de ntree
-RF_NL_ntree = Ntree[which.min(MSE_RF_NL_tree)] # 400
+RF_NL_ntree = Ntree[which.min(MSE_RF_NL_tree)] 
 RF_NL_ntree
 barplot(MSE_RF_NL_tree, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_NL_tree), main="MSE selon ntree")
 
@@ -1672,14 +1687,6 @@ for (j in 1:nb) {
 
 res_node
 
-
-```
-
-
-
-RANDOM FOREST choix de nodesize résultats
-```{r}
-
 # graphe des MSE du choix de nodesize
 RF_NL_node = which.min(MSE_RF_NL_node)
 
@@ -1688,8 +1695,8 @@ RF_NL_node = which.min(MSE_RF_NL_node)
 
 barplot(MSE_RF_NL_node, xlab="ntree", ylab="MSE", ylim = range(MSE_RF_NL_node) , names = names(MSE_RF_NL_node) ,main="MSE selon nodesize",las=0) 
 
-
 ```
+
 
 ## RANDOM FOREST modèle final
 ```{r}
@@ -1745,28 +1752,31 @@ checkresiduals(res_RF_NL_TMYD)
 
 
 
-##SVR modelisation train/test
+## SVR modelisation 
 ```{r}
 
+# grid search pour les paramètres epsilon et cost (très long)
+tuneResult <- tune(svm, Y ~ .,  data = don.train,
+              ranges = list(epsilon = seq(0,1,0.1), cost = 2^(2:9))
+)
+
+print(tuneResult)
+
+# Draw the tuning graph: plus c'est foncé, plus la MSE est élevée
+plot(tuneResult)
+
+
 #Regression with SVM
-SVR_NL_tot = svm(Y~.,don.train)
-MSE_SVR_NL_tot= mean((Y.test-predict(SVR_NL_tot,don.test))^2)
+SVR_NL = tuneResult$best.model
+MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
 
 #Predict using SVM regression
-pred_SVR_NL = predict(SVR_NL_tot, don.test)
+pred_SVR_NL = predict(SVR_NL, don.test)
 
-#Overlay SVM Predictions on Scatter Plot
+# SVM Prediction Plot
 plot(don.test$Date, Y.test)
 lines(don.test$Date, pred_SVR_NL, col="purple")
 
-
-
-```
-
-
-SVR names
-```{r}
-# names(SVR_NL_tot)
 
 
 ```
@@ -1777,10 +1787,6 @@ SVR names
 
 plot(SVR_NL_tot$residuals)
 
-
-```
-
-```{r}
 res_SVR_NL=don.test$Y-pred_SVR_NL
 checkresiduals(res_SVR_NL)
 # beaucoup d'autocorrélation, distribution pas centrée
@@ -1792,7 +1798,7 @@ checkresiduals(res_SVR_NL)
 # RESEAUX NEURONES
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
-## modelisation CV
+## choix des parametres par CV
 ```{r}
 
 # avec caret
@@ -1813,14 +1819,6 @@ NN_NL_tot <- train(x = don.train[ , colnames(don.train) != "Y"],
 ```
 
 
-plot
-```{r}
-
-plot(NN_NL_tot)
-
-
-```
-
 ## modèle final
 ```{r}
 
@@ -1831,11 +1829,7 @@ NN_NL <- NN_NL_tot$finalModel
 pred_NN_NL <- predict(NN_NL, newdata = don.test)
 MSE_NN_NL <- mean((pred_NN_NL - don.test$Y)^2)
 
-```
-
-names
-```{r}
-# names(NN_NL_tot$finalModel)
+plot(NN_NL_tot)
 
 ```
 
@@ -1889,8 +1883,8 @@ Xtest <- don[-train, ]
 ```{r}
 nround_list = seq(from = 100, to = 1000 , by = 100)
 nb_test= length(nround_list)
-mape_test = rep(0, nb_test)
-str(mape_test)
+mse_test = rep(0, nb_test)
+str(mse_test)
 
 for (i in 1:nb_test) {
   
@@ -1919,23 +1913,23 @@ for (i in 1:nb_test) {
 
   # prédiction
   pred_XGB_NL= predict(XGB_NL, data.matrix(Xtest))
-  mape_test[i] = fun_mape(Y.test, XGB_NL, data.matrix(Xtest))
+  mse_test[i] = fun_mse(Y.test, XGB_NL, data.matrix(Xtest))
  
 }
 
-names(mape_test) <- as.character(nround_list)
+names(mse_test) <- as.character(nround_list)
 
-barplot(mape_test, xlab="nround", ylab="MAPE %", ylim = range(mape_test) , names = names(mape_test) , main="MAPE selon nround",las=0) 
+barplot(mse_test, xlab="nround", ylab="MSE", ylim = range(mse_test) , names = names(mse_test) , main="MSE selon nround",las=0) 
 
 
 
 ```
 
 ```{r}
-mape_test
-# à 0.82% à 500
+mse_test
 
-which.min(mape_test) # 400  à 0.8%
+
+which.min(mse_test) 
 
 ```
 
@@ -1945,7 +1939,7 @@ XGB_NL <- xgboost(data = data.matrix(Xtrain), label = Y.train,
   booster = "gbtree", objective = "reg:linear", eval_metric = "rmse",
   learning_rate = 0.05, 
   subsample = 0.5, seed = 1, # subsample default value=1. Setting to 0.5 means that XGBoost randomly collected half of the data instances to grow trees and this will prevent overfitting. 
-  silent = 1, nrounds = 400, verbose = 0)
+  silent = 1, nrounds = 700, verbose = 0)
 
 # prédiction
 pred_XGB_NL= predict(XGB_NL, data.matrix(Xtest))
@@ -1956,5 +1950,309 @@ plot(don.test$Date, don.test$Y, xlab = "date", ylab="Conso", main="XGB Pays Bas"
 lines(don.test$Date,pred_XGB_NL, col="purple") 
 
 ```
+
+
+# BAGGING
+
+## bagging RL
+
+```{r}
+fun_bag_RL<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-lm(Y ~ Temp + month + year + day ,data=training[train_pos,])
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_RL_pred <-fun_bag_RL(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_RL <- mean((Y.test-bagg_RL_pred)^2)
+
+
+```
+
+
+
+## bagging POLY avec degre issu de CV 
+
+```{r}
+fun_bag_POLY<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-lm(formula=Y~poly(Temp,poly_NL_deg, raw=T),data=training[train_pos,])
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_POLY_pred <-fun_bag_POLY(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_POLY <- mean((Y.test-bagg_POLY_pred)^2)
+
+
+```
+
+
+
+## bagging Splines: avec df issu CV
+
+```{r}
+fun_bag_SP<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-lm ( Y~ ns(Temp, df = SP_NL_df), data=training[train_pos,])
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_SP_pred <-fun_bag_SP(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_SP <- mean((Y.test-bagg_SP_pred)^2)
+
+
+```
+
+
+
+## bagging GAM Spline avec df issu de CV  
+```{r}
+fun_bag_GAM<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-lm(Y~ns(Temp,df=GAM_SP_NL_ns_df) + month + year + day, data=training[train_pos,])
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_GAM_pred <-fun_bag_GAM(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_GAM <- mean((Y.test-bagg_GAM_pred)^2)
+
+
+
+```
+
+
+
+## bagging RF avec parametres issus de CV
+```{r}
+fun_bag_RF<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-randomForest(Y~., mtry = RF_NL_mtry, ntree= RF_NL_ntree, nodesize = RF_NL_node, data=training[train_pos,])
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_RF_pred <-fun_bag_RF(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_RF <- mean((Y.test-bagg_RF_pred)^2)
+
+
+
+```
+
+
+
+## bagging SVR avec epsilon et cost du modele final après tuning
+```{r}
+fun_bag_SVR<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-svm(Y~., data=training[train_pos,], epsilon = 0, cost = 4)
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_SVR_pred <-fun_bag_SVR(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_SVR <- mean((Y.test-bagg_SVR_pred)^2)
+
+
+```
+
+
+
+## NN avec bagging: size et decay issu de tuning
+```{r}
+
+fun_bag_NN<-function(training,testing, length_divisor=4,iterations=1000)
+{
+predictions<-foreach(m=1:iterations,.combine=cbind) %do% {
+training_positions <- sample(nrow(training), size=floor((nrow(training)/length_divisor)))
+train_pos<-1:nrow(training) %in% training_positions
+fit<-nnet(Y ~ . , data=training[train_pos,], size=5, decay=0.4, trace= F)
+predict(fit,newdata=testing)
+}
+rowMeans(predictions) # moyenne des predictions
+}
+
+bagg_NN_pred <-fun_bag_NN(don.train, don.test, length_divisor=4,iterations=1000)
+bagg_MSE_NN <- mean((Y.test-bagg_NN_pred)^2)
+
+
+```
+
+
+
+## bagging XGB trop long
+
+
+
+# SYNTHESE DES MODELES 
+
+
+## MSE sans bagging 
+```{r}
+
+
+# comparaison des MSE de tous les modèles 
+MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_POLY,MSE_GAM_NL_SP ,MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
+min_MSE <- which.min(MSE_NL_tot) # c'est le modèle XGB
+
+# graphe des MSE
+graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Pays Bas",las=0, col=ifelse(MSE_NL_tot==MSE_NL_tot[min_MSE], "red", "blue"))
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM_poly", "GAM_SP" ,"RF", "SVR", "NN", "XGB"), at = graph)
+
+```
+
+
+MSE meilleurs modèles 
+```{r}
+
+# comparaison des MSE entre les meilleurs modèles, sans P2, Poly simple, Spline simple, NN
+MSE_NL_r=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL_POLY, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_XGB_NL)
+
+# graphe des MSE
+graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_SVR_NL, MSE_RL_NL) ,main="MSE des modèles", las=0, col=ifelse(MSE_NL_tot==MSE_NL_tot[min_MSE], "red", "blue"))
+axis(1, labels=c("RL", "RLI","multi", "GAM_POLY","GAM_SP" ,"RF", "SVR", "XGB"), at = graph)
+
+
+```
+
+
+
+## MSE avec bagging
+```{r}
+
+bagg_MSE_tot=c(bagg_MSE_RL, bagg_MSE_POLY, bagg_MSE_SP, bagg_MSE_GAM, bagg_MSE_RF, bagg_MSE_SVR, bagg_MSE_NN, bagg_MSE_XGB)
+min_bagg_MSE <- which.min(bagg_MSE_tot)
+
+# graphe des MSE
+graph<-barplot(bagg_MSE_tot, xlab="modeles", ylab="MSE", main="MSE des modeles avec bagging",las=0, col=ifelse(bagg_MSE_tot==bagg_MSE_tot[min_bagg_MSE], "red", "blue"))
+axis(1, labels=c("RL", "Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB"), at = graph)
+
+
+
+```
+
+MSE des meilleurs modeles 
+```{r}
+
+bagg_MSE_r= c(bagg_MSE_RL, bagg_MSE_POLY, bagg_MSE_SP, bagg_MSE_GAM, bagg_MSE_RF, bagg_MSE_SVR, bagg_MSE_XGB)
+min_bagg_MSE <- which.min(bagg_MSE_r)
+
+# graphe des MSE
+graph<-barplot(bagg_MSE_r, xlab="modeles", ylab="MSE", main="MSE des modeles avec bagging",las=0, col=ifelse(bagg_MSE_r==bagg_MSE_r[min_bagg_MSE], "red", "blue"))
+axis(1, labels=c("RL", "Poly" ,"SP", "GAM" ,"RF", "SVR", "XGB"), at = graph)
+
+```
+
+
+## comparaison des MSE sans bagging et avec bagging
+```{r}
+MSE_NL_comp=c(MSE_RL_NL, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_SP ,MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
+
+modeles=c("RL", "Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB")
+sans_bagg=MSE_NL_comp
+avec_bagg=bagg_MSE_tot
+df <- data.frame(cbind(modeles, sans_bagg, avec_bagg)) # les 2 dernières variables sont devenues des facteurs
+# convertir en numéric
+for (i in 2:3) {  df[, i] <- as.numeric(as.character(df[, i])) }
+str(df) # y en numerique
+
+library(lattice)
+barchart(sans_bagg+avec_bagg~ modeles, data = df, auto.key= T) 
+
+
+
+```
+
+meilleurs modeles
+```{r}
+modeles=c("RL","GAM" ,"RF", "SVR","XGB")
+sans_bagg=c(MSE_RL, MSE_GAM_SP,MSE_RF, MSE_SVR, MSE_XGB)
+avec_bagg=c(bagg_MSE_RL, bagg_MSE_GAM, bagg_MSE_RF, bagg_MSE_SVR, bagg_MSE_XGB)
+df <- data.frame(cbind(modeles, sans_bagg, avec_bagg)) # les 2 edernières variables sont facteur
+# convertir en numéric
+for (i in 2:3) {  df[, i] <- as.numeric(as.character(df[, i])) }
+str(df) # y en numerique
+
+library(lattice)
+barchart(sans_bagg+avec_bagg~ modeles, data = df, auto.key= T) 
+
+# la bagging n'améliore pas les MSE. Donc nous ne le presenterons pas et ne le generaliserons pas aux autres pays
+
+```
+
+
+## comparaison R² ajuste
+```{r}
+RL_NL_sum <-summary(RL_NL)
+Radj_RL <- RL_NL_sum$adj.r.squared
+
+RLI_NL_sum <-summary(RLI_NL)
+Radj_RLI <- RLI_NL_sum$adj.r.squared
+
+RLI_NL_multi_sum <-summary(RLI_NL_multi)
+Radj_RLI_multi <- RLI_NL_multi_sum$adj.r.squared
+
+RLI_NL_P2_sum <-summary(RLI_NL_P2)
+Radj_RLI_P2 <- RLI_NL_P2_sum$adj.r.squared
+
+POLY_NL_sum <-summary(POLY_NL)
+Radj_POLY <- POLY_NL_sum$adj.r.squared
+
+SP_NL_sum <-summary(SP_NL)
+Radj_SP <- SP_NL_sum$adj.r.squared
+
+GAM_NL_SP_sum <-summary(GAM_NL_SP)
+Radj_GAM <- GAM_NL_SP_sum$adj.r.squared
+
+# calcul pour R² ajuste pour RF
+Rsq_RF <- mean(RF_NL_fin$rsq)
+n <-nrow(don.train) # nombre d'observation
+k <- ncol(don.train) # nombre de variables explicatives utilisées dans le modèle
+Radj_RF <- 1-( (1-Rsq_RF)*(n-1)/(n-k-1))
+
+
+
+# total
+Radj_tot=c(Radj_RL,Radj_RLI, Radj_RLI_multi, Radj_RLI_P2, Radj_POLY, Radj_SP, Radj_GAM_SP, Radj_RF)
+max_Radj <- which.max(Radj_tot)
+
+# graphe des Radj
+graph<-barplot(Radj_tot, xlab="modeles", ylab="R2 adj", main="R2 adj des modeles",las=0, col=ifelse(Radj_tot==Radj_tot[max_Radj], "red", "blue"), ylim = c(0.88, 1))
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF"), at = graph)
+ 
+# c'est le modèle RLI_multi (interactions multiples entre Temp+lags de Temp et les autres variables de date)
+# 
+```
+
+
+
+
 
 

@@ -1,5 +1,5 @@
 ---
-title: "Synthese NL Pays Bas"
+title: "Synthese commentee sur Pays Bas"
 author: "Nhu-Nguyen Ngo"
 date: "16 avril 2018"
 output: html_document
@@ -9,11 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-remplacer nom fichier
-remplacer title
-remplacer base: base_NL_F
-remplacer suffixe: _NL
-remplacer nom: Pays Bas
+Script de synthèse commenté sur Pays Bbas, qui a besoin que le script Modeles Pays Bas V9 soit lancé avant pour avoir les paramètres trouvés par CV.
 
 
 # PACKAGES
@@ -114,10 +110,9 @@ don <- base_NL_F_cr
 
 dim(don)
 
-# suppression des variales liées à la température teff, seuil, T00
-don<-don[,-which(colnames(don)== "teff")] 
-don<-don[,-which(colnames(don)== "seuil")] 
-don<-don[,-which(colnames(don)== "T00")] 
+# suppression des variales liees a la temperature teff, seuil, T00
+var_delete <- c(which(colnames(don)== "teff"),which(colnames(don)== "seuil"),which(colnames(don)== "T00"))
+don<-don[,-var_delete] 
 head(don)
 
 # creation des variables Y (variable cible) et X
@@ -129,11 +124,11 @@ Y=don$Y
 X=don$Temp
 donYX=data.frame(cbind(Y,X))
 
-# Creation de l'echantillon train sur base compl?te sans les 14 derniers jours et test 1/3
+# Creation de l'echantillon train et test
 set.seed(1)
 dim<-nrow(don)
 split=0.8
-train=sample(dim,split*dim,replace=FALSE)# vecteur d'entier pour la population d'individus en base d'apprentissage
+train=sample(dim,split*dim,replace=FALSE) 
 
 don.train=don[train,]
 don.test=don[-train,]
@@ -258,9 +253,9 @@ MSE_SP_NL= mean((Y.test-predict(SP_NL,don.test))^2)
 ```{r}
 # GAM_POLY ------------------------------------------------------------------------
 # Conso en fonction d'un poly sur Temp et la somme des variables month, year, day
-# détermination du degré du polynome par CV hold out: 6
+# détermination du degré du polynome par CV hold out
 # modèle GAM retenu par MSE : les modèles tot fin et step sont identiques 
-GAM_NL_POLY <-lm(formula = Y ~ poly(Temp, 6) + month + year + day, data = don.train) 
+GAM_NL_POLY <-lm(formula = Y ~ poly(Temp, 7) + month + year + day, data = don.train) 
 pred_GAM_NL_POLY=predict(GAM_NL_POLY, newdata=don.test, se=T)
 MSE_GAM_NL_POLY= mean((Y.test-predict(GAM_NL_POLY,don.test))^2)
 
@@ -286,8 +281,8 @@ which.min(c(MSE_GAM_NL_POLY,MSE_GAM_NL_SP)) #  c'est GAM SP qui a la plus petite
 # MODELE RANDOM FOREST
 ```{r}
 
-# Random Forest , avec mtry (8), ntree (400) et nodesize (1) choisis par CV hold out
-RF_NL<-randomForest(Y~., mtry = 8, ntree= 400, nodesize = 1 ,data=don.train)
+# Random Forest , avec mtry, ntree et nodesize, choisis par CV hold out
+RF_NL<-randomForest(Y~., mtry = 7, ntree= 400, nodesize = 4 ,data=don.train)
 pred_RF_NL = predict(RF_NL, don.test)
 MSE_RF_NL= mean((Y.test-predict(RF_NL,don.test))^2)
 
@@ -296,7 +291,7 @@ MSE_RF_NL= mean((Y.test-predict(RF_NL,don.test))^2)
 
 # MODELE SVR
 ```{r}
-SVR_NL = svm(Y~.,don.train)
+SVR_NL = tuneResult$best.model # issu du tuning des parametres epsilon et cost
 pred_SVR_NL = predict(SVR_NL, don.test)
 MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
 
@@ -305,8 +300,7 @@ MSE_SVR_NL= mean((Y.test-predict(SVR_NL,don.test))^2)
 
 # MODELE RESEAUX NEURONES
 ```{r}
-# détermination par CV de size (4) et decay (0.5)
-# avec caret
+# détermination par CV de size (4) et decay (0.5) avec caret
 controlList <- trainControl(method = "cv", number = 5)
 tuneMatrix <- expand.grid(size = c(1, 2, 3, 4, 5, 6), decay = seq(from = 0, to = 0.5, by=0.1))
 
@@ -371,39 +365,147 @@ lines(don.test$Date,pred_XGB_NL, col="purple")
 # SYNTHESE DES MODELES 
 
 
-## MSE plot
+## MSE sans bagging 
 ```{r}
 
 
 # comparaison des MSE de tous les modèles 
 MSE_NL_tot=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_RLI_NL_P2, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_POLY,MSE_GAM_NL_SP ,MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
+min_MSE <- which.min(MSE_NL_tot) # c'est le modèle XGB
 
 # graphe des MSE
-graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Pays Bas",las=0)
+graph<-barplot(MSE_NL_tot, xlab="modèles", ylab="MSE", main="MSE des modèles Pays Bas",las=0, col=ifelse(MSE_NL_tot==MSE_NL_tot[min_MSE], "red", "blue"))
 axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SPLINE", "GAM_poly", "GAM_SP" ,"RF", "SVR", "NN", "XGB"), at = graph)
 
 ```
 
-MSE minimal
-```{r}
-which.min(MSE_NL_tot) # c'est le modèle XGB
-```
 
-MSE plots meilleurs modèles 
+MSE meilleurs modèles 
 ```{r}
 
 # comparaison des MSE entre les meilleurs modèles, sans P2, Poly simple, Spline simple, NN
 MSE_NL_r=c(MSE_RL_NL, MSE_RLI_NL, MSE_RLI_NL_multi, MSE_GAM_NL_POLY, MSE_GAM_NL_SP, MSE_RF_NL, MSE_SVR_NL, MSE_XGB_NL)
 
 # graphe des MSE
-graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_SVR_NL, MSE_RL_NL) ,main="MSE des modèles", las=0)
+graph<-barplot(MSE_NL_r, xlab="modèles", ylab="MSE",ylim=c(MSE_SVR_NL, MSE_RL_NL) ,main="MSE des modèles", las=0, col=ifelse(MSE_NL_tot==MSE_NL_tot[min_MSE], "red", "blue"))
 axis(1, labels=c("RL", "RLI","multi", "GAM_POLY","GAM_SP" ,"RF", "SVR", "XGB"), at = graph)
 
 
 ```
 
 
-objet RF et SVR pas reconnu par stargazer
+
+## MSE avec bagging
+```{r}
+
+bagg_MSE_tot=c(bagg_MSE_RL, bagg_MSE_POLY, bagg_MSE_SP, bagg_MSE_GAM, bagg_MSE_RF, bagg_MSE_SVR, bagg_MSE_NN, bagg_MSE_XGB)
+min_bagg_MSE <- which.min(bagg_MSE_tot)
+
+# graphe des MSE
+graph<-barplot(bagg_MSE_tot, xlab="modeles", ylab="MSE", main="MSE des modeles avec bagging",las=0, col=ifelse(bagg_MSE_tot==bagg_MSE_tot[min_bagg_MSE], "red", "blue"))
+axis(1, labels=c("RL", "Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB"), at = graph)
+
+
+
+```
+
+MSE des meilleurs modeles 
+```{r}
+
+bagg_MSE_r= c(bagg_MSE_RL, bagg_MSE_POLY, bagg_MSE_SP, bagg_MSE_GAM, bagg_MSE_RF, bagg_MSE_SVR, bagg_MSE_XGB)
+min_bagg_MSE <- which.min(bagg_MSE_r)
+
+# graphe des MSE
+graph<-barplot(bagg_MSE_r, xlab="modeles", ylab="MSE", main="MSE des modeles avec bagging",las=0, col=ifelse(bagg_MSE_r==bagg_MSE_r[min_bagg_MSE], "red", "blue"))
+axis(1, labels=c("RL", "Poly" ,"SP", "GAM" ,"RF", "SVR", "XGB"), at = graph)
+
+```
+
+
+## comparaison des MSE sans bagging et avec bagging
+```{r}
+MSE_NL_comp=c(MSE_RL_NL, MSE_POLY_NL, MSE_SP_NL, MSE_GAM_NL_SP ,MSE_RF_NL, MSE_SVR_NL, MSE_NN_NL, MSE_XGB_NL)
+
+modeles=c("RL", "Poly" ,"SP", "GAM" ,"RF", "SVR", "NN", "XGB")
+sans_bagg=MSE_NL_comp
+avec_bagg=bagg_MSE_tot
+df <- data.frame(cbind(modeles, sans_bagg, avec_bagg)) # les 2 dernières variables sont devenues des facteurs
+# convertir en numéric
+for (i in 2:3) {  df[, i] <- as.numeric(as.character(df[, i])) }
+str(df) # y en numerique
+
+library(lattice)
+barchart(sans_bagg+avec_bagg~ modeles, data = df, auto.key= T) 
+
+
+
+```
+
+meilleurs modeles
+```{r}
+modeles=c("RL","GAM" ,"RF", "SVR","XGB")
+sans_bagg=c(MSE_RL, MSE_GAM_SP,MSE_RF, MSE_SVR, MSE_XGB)
+avec_bagg=c(bagg_MSE_RL, bagg_MSE_GAM, bagg_MSE_RF, bagg_MSE_SVR, bagg_MSE_XGB)
+df <- data.frame(cbind(modeles, sans_bagg, avec_bagg)) # les 2 edernières variables sont facteur
+# convertir en numéric
+for (i in 2:3) {  df[, i] <- as.numeric(as.character(df[, i])) }
+str(df) # y en numerique
+
+library(lattice)
+barchart(sans_bagg+avec_bagg~ modeles, data = df, auto.key= T) 
+
+# la bagging n'améliore pas les MSE. Donc nous ne le presenterons pas et ne le generaliserons pas aux autres pays
+
+```
+
+
+## comparaison R² ajuste
+```{r}
+RL_NL_sum <-summary(RL_NL)
+Radj_RL <- RL_NL_sum$adj.r.squared
+
+RLI_NL_sum <-summary(RLI_NL)
+Radj_RLI <- RLI_NL_sum$adj.r.squared
+
+RLI_NL_multi_sum <-summary(RLI_NL_multi)
+Radj_RLI_multi <- RLI_NL_multi_sum$adj.r.squared
+
+RLI_NL_P2_sum <-summary(RLI_NL_P2)
+Radj_RLI_P2 <- RLI_NL_P2_sum$adj.r.squared
+
+POLY_NL_sum <-summary(POLY_NL)
+Radj_POLY <- POLY_NL_sum$adj.r.squared
+
+SP_NL_sum <-summary(SP_NL)
+Radj_SP <- SP_NL_sum$adj.r.squared
+
+GAM_NL_SP_sum <-summary(GAM_NL_SP)
+Radj_GAM <- GAM_NL_SP_sum$adj.r.squared
+
+# calcul pour R² ajuste pour RF
+Rsq_RF <- mean(RF_NL_fin$rsq)
+n <-nrow(don.train) # nombre d'observation
+k <- ncol(don.train) # nombre de variables explicatives utilisées dans le modèle
+Radj_RF <- 1-( (1-Rsq_RF)*(n-1)/(n-k-1))
+
+
+
+# total
+Radj_tot=c(Radj_RL,Radj_RLI, Radj_RLI_multi, Radj_RLI_P2, Radj_POLY, Radj_SP, Radj_GAM_SP, Radj_RF)
+max_Radj <- which.max(Radj_tot)
+
+# graphe des Radj
+graph<-barplot(Radj_tot, xlab="modeles", ylab="R2 adj", main="R2 adj des modeles",las=0, col=ifelse(Radj_tot==Radj_tot[max_Radj], "red", "blue"), ylim = c(0.88, 1))
+axis(1, labels=c("RL", "RLI","multi", "P2" ,"Poly" ,"SP", "GAM" ,"RF"), at = graph)
+ 
+# c'est le modèle RLI_multi (interactions multiples entre Temp+lags de Temp et les autres variables de date)
+
+
+```
+
+
+## stats avec stargazer: 
+objets RF, SVR, NN, XGB pas reconnus par stargazer
 ```{r}
 # on enlève RLI_P2 dont la MSE est plus de 2 fois suppérieure à celle des autres RL, ainsi que POLY et Splines simples
 stargazer(RL_NL, RLI_NL, RLI_NL_multi, RLI_NL_P2, GAM_NL_POLY, GAM_NL_SP, type='text', flip=TRUE, title="Results", align=TRUE, column.labels = c("RL", "RLI", "multi","P2","gamP", "gamS"), keep = c("Date"), model.names = TRUE, single.row = TRUE)

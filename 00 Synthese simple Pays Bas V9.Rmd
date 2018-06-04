@@ -9,6 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Script autosuffisant pour les modeles retenus pour Pays Bas, avec toutes les variables d'environnement.
+
+Pour generaliser aux autres pays:
 remplacer nom fichier
 remplacer title
 remplacer base: base_NL_F
